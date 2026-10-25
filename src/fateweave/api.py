@@ -74,7 +74,8 @@ def create_app(
             finally:
                 endpoint.app = None
 
-    app = FastAPI(title="Fateweave", lifespan=lifespan)
+    # redirect_slashes=False: `/mcp/` is a plain 404, never a 307 to `/mcp` (exact path only).
+    app = FastAPI(title="Fateweave", lifespan=lifespan, redirect_slashes=False)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

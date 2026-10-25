@@ -35,7 +35,8 @@ After deployment (replace `$HOST` with the public host, key from the secret file
 - [ ] `curl -sS -o /dev/null -w '%{http_code}\n' https://$HOST/healthz` -> `200`
 - [ ] `curl -sS -o /dev/null -w '%{http_code}\n' -X POST https://$HOST/mcp` (no key) -> `401`
 - [ ] Token-authorized MCP `tools/list` through a real MCP client (header `X-Fateweave-Key`) lists the Fateweave tools.
-- [ ] `curl -sI -H 'X-Fateweave-Key: ...' https://$HOST/mcp/` redirect `Location` starts with `https://`.
+- [ ] Exact `/mcp` path, no redirects: `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Fateweave-Key: ...' -X POST https://$HOST/mcp/`
+      -> `404` with an empty redirect URL (no 3xx, no `Location`); the same for `/mcp/mcp` and `/mcpfoo` -> `404`.
 - [ ] Any other path (`https://$HOST/foo`) -> `404`; `http://$HOST/` -> `301` to https.
 - [ ] Role privileges on the real instance:
       `psql -U fateweave_app -d fateweave -c "DELETE FROM report_versions"` -> permission denied;

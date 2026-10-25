@@ -196,3 +196,21 @@ def test_direct_app_port_not_public_in_test_config(monkeypatch):
     ((args, kwargs),) = calls
     assert kwargs["host"] == "10.1.2.3" and kwargs["port"] == 9123
     assert kwargs.get("access_log", True) is True
+
+
+async def test_mcp_path_is_exact_without_redirects():
+    async with running_app() as http:
+        authed = MCPClient(http)
+        for headers in (authed.headers(), MCPClient(http, key=None).headers()):
+            resp = await http.post("/mcp/", json=initialize_payload(), headers=headers)
+            assert not 300 <= resp.status_code < 400, resp.status_code
+            assert resp.status_code in (401, 404)
+            assert "location" not in resp.headers
+        for path in ("/mcp/mcp", "/mcpfoo"):
+            resp = await http.post(path, json=initialize_payload(), headers=authed.headers())
+            assert resp.status_code == 404, path
+            assert "location" not in resp.headers
+        for method in ("HEAD", "OPTIONS"):
+            resp = await http.request(method, "/mcp")
+            assert resp.status_code == 401, method
+            assert "mcp-session-id" not in resp.headers

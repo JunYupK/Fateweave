@@ -58,7 +58,7 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    ```
 4. **Nginx:** render `deploy/nginx-fateweave.conf` with `envsubst '${FATEWEAVE_PUBLIC_HOST}'`, set real certificate paths
    (reuse an existing cert only if its SANs cover the host), `nginx -t && nginx -s reload`. The vhost logs without
-   request headers, proxies `/mcp` and `/healthz`, and 404s everything else. uvicorn trusts `X-Forwarded-*` only from
+   request headers, proxies exactly `/mcp` and `/healthz` (no `/mcp/` redirect), and 404s everything else. uvicorn trusts `X-Forwarded-*` only from
    `FATEWEAVE_FORWARDED_ALLOW_IPS` (compose sets the Docker bridge range; default outside Docker is `127.0.0.1`).
 5. **Data retention:** report and profile data are kept until deleted via the admin CLI. Run it with the owner role:
    `docker compose -p fateweave -f deploy/compose.fateweave.yaml run --rm -e FATEWEAVE_DATABASE_URL fateweave-api python -m fateweave.admin purge-profile --profile-id UUID [--confirm]`

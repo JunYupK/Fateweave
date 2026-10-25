@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Direct app port stays on loopback; only the TLS proxy is public.
     bind_host: str = "127.0.0.1"
     port: int = 8080
-    # Trust X-Forwarded-* only from the local TLS proxy (so redirects get an https Location).
+    # Trust X-Forwarded-* only from the local TLS proxy (client scheme/address in the app).
     proxy_headers: bool = True
     forwarded_allow_ips: str = "127.0.0.1"
 
