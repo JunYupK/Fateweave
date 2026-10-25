@@ -609,3 +609,109 @@ async def test_purge_cli_dry_run_output_and_missing_profile(
 
     argv = ["purge-profile", "--profile-id", str(uuid.uuid4()), "--confirm"]
     assert await asyncio.to_thread(main, argv, url) == 2
+
+
+def _cli(argv: list[str], url: str) -> int:
+    from fateweave.admin import main
+
+    return main(argv, url)
+
+
+async def test_list_profiles_newest_first_without_birth_data(
+    engine: AsyncEngine, test_db_url, capsys: pytest.CaptureFixture
+):
+    _, _, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    async with engine.connect() as conn:
+        newest_first = (
+            (await conn.execute(text("SELECT id FROM birth_profiles ORDER BY created_at DESC, id")))
+            .scalars()
+            .all()
+        )
+    capsys.readouterr()
+    assert await asyncio.to_thread(_cli, ["list-profiles"], url) == 0
+    out = capsys.readouterr().out
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    assert [uuid.UUID(ln.split()[0]) for ln in lines[1:]] == newest_first
+    assert set(pids) <= set(newest_first)
+    assert all(ln.endswith("runs=1") for ln in lines[1:])
+    assert "1990-05-15" not in out and "1988-03-02" not in out and "birth_input" not in out
+
+    assert await asyncio.to_thread(_cli, ["list-profiles", "--limit", "1"], url) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    assert len(lines) == 2 and lines[1].startswith(str(newest_first[0]))
+
+
+async def test_purge_report_dry_run_then_confirm(
+    engine: AsyncEngine, test_db_url, capsys: pytest.CaptureFixture, caplog
+):
+    other_rid, couple_rid, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    before = await _counts(engine)
+    capsys.readouterr()
+
+    argv = ["purge-report", "--report-id", str(couple_rid)]
+    assert await asyncio.to_thread(_cli, argv, url) == 0
+    out = capsys.readouterr().out
+    assert "DRY RUN" in out and "--confirm" in out
+    assert str(pids[0]) in out and str(pids[1]) in out
+    assert "report_versions: 1" in out and "birth_profiles: 2" in out
+    assert await _counts(engine) == before
+
+    caplog.set_level("INFO", logger="fateweave.audit")
+    assert await asyncio.to_thread(_cli, [*argv, "--confirm"], url) == 0
+    assert await _counts(engine) == {
+        "birth_profiles": 1,
+        "analysis_runs": 1,
+        "report_versions": 1,
+        "alternative_interpretations": 0,
+    }
+    assert (await _reports(engine).get_report(other_rid)).report_id == other_rid
+    events = [json.loads(r.getMessage()) for r in caplog.records if r.name == "fateweave.audit"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["action"] == "purge-report" and event["report_id"] == str(couple_rid)
+    assert event["profile_ids"] == [str(p) for p in pids]
+    assert event["counts"]["birth_profiles"] == 2 and event["counts"]["report_versions"] == 1
+
+    missing = ["purge-report", "--report-id", str(uuid.uuid4()), "--confirm"]
+    assert await asyncio.to_thread(_cli, missing, url) == 2
+
+
+async def test_purge_profile_reports_orphans(
+    engine: AsyncEngine, test_db_url, capsys: pytest.CaptureFixture
+):
+    _, _, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    capsys.readouterr()
+    argv = ["purge-profile", "--profile-id", str(pids[0])]
+    assert await asyncio.to_thread(_cli, argv, url) == 0
+    out = capsys.readouterr().out
+    assert "orphaned" in out and str(pids[1]) in out  # the dry run names the would-be orphan
+
+    assert await asyncio.to_thread(_cli, [*argv, "--confirm"], url) == 0
+    out = capsys.readouterr().out
+    assert "orphaned" in out and str(pids[1]) in out and "--include-orphans" in out
+    async with engine.connect() as conn:
+        left = (await conn.execute(text("SELECT id FROM birth_profiles"))).scalars().all()
+    assert pids[1] in left and pids[0] not in left  # reported, not deleted
+
+
+async def test_purge_profile_include_orphans(engine: AsyncEngine, test_db_url, caplog):
+    _, _, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    caplog.set_level("INFO", logger="fateweave.audit")
+    argv = ["purge-profile", "--profile-id", str(pids[0]), "--confirm", "--include-orphans"]
+    assert await asyncio.to_thread(_cli, argv, url) == 0
+    assert await _counts(engine) == {
+        "birth_profiles": 1,  # only the unrelated individual's profile remains
+        "analysis_runs": 1,
+        "report_versions": 1,
+        "alternative_interpretations": 0,
+    }
+    events = [json.loads(r.getMessage()) for r in caplog.records if r.name == "fateweave.audit"]
+    assert [(e["action"], e["profile_id"]) for e in events] == [
+        ("purge-profile", str(pids[0])),
+        ("purge-orphan-profile", str(pids[1])),
+    ]
+    assert events[1]["counts"]["birth_profiles"] == 1

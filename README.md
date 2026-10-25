@@ -60,9 +60,18 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    (reuse an existing cert only if its SANs cover the host), `nginx -t && nginx -s reload`. The vhost logs without
    request headers, proxies exactly `/mcp` and `/healthz` (no `/mcp/` redirect), and 404s everything else. uvicorn trusts `X-Forwarded-*` only from
    `FATEWEAVE_FORWARDED_ALLOW_IPS` (compose sets the Docker bridge range; default outside Docker is `127.0.0.1`).
-5. **Data retention:** report and profile data are kept until deleted via the admin CLI. Run it with the owner role:
-   `docker compose -p fateweave -f deploy/compose.fateweave.yaml run --rm -e FATEWEAVE_DATABASE_URL fateweave-api python -m fateweave.admin purge-profile --profile-id UUID [--confirm]`
-   (dry run without `--confirm`).
+5. **Data retention:** report and profile data are kept until deleted via the admin CLI. `prepare_analysis`
+   stores the birth input immediately, so a PREPARED (or VALIDATION_FAILED) run that is never finalized keeps its
+   participants' birth data until you purge it. Run the CLI with the owner role (`ADMIN` below stands for
+   `docker compose -p fateweave -f deploy/compose.fateweave.yaml run --rm -e FATEWEAVE_DATABASE_URL fateweave-api python -m fateweave.admin`):
+   1. `ADMIN list-profiles [--limit N]` prints `id  alias  created_at  runs=N`, newest first (no birth data).
+   2. `ADMIN purge-profile --profile-id UUID` (dry run: impact counts and any co-participant that would be orphaned),
+      then add `--confirm`. Every run naming the profile (couples included) and those runs' reports and
+      alternatives are deleted. Co-participant profiles left with no remaining runs are reported as "orphaned" and
+      kept; add `--include-orphans` to purge them in the same transaction.
+   3. To delete everything behind one report: `ADMIN purge-report --report-id UUID [--confirm] [--include-orphans]`
+      resolves the report's run to its participant profiles and purges each of them (dry run without `--confirm`).
+   Each purge writes a JSON audit line (`fateweave.audit`: action, ids, counts, timestamp; no birth data or aliases).
 6. **Backups:** `deploy/backup.sh` (needs `BACKUP_DIR`, optional `KEEP_DAYS`, default 14; credentials via `PGPASSFILE`/env)
    writes a `600` custom-format dump. It is not installed in cron; suggested daily entry:
    `15 3 * * * BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1 PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass /opt/fateweave/deploy/backup.sh`.

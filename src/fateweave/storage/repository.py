@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select, text, tuple_, update
+from sqlalchemy import any_, delete, func, select, text, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fateweave.storage.tables import (
@@ -221,10 +222,68 @@ class AnalysisRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def list_profiles(
+        self, limit: int = 50
+    ) -> list[tuple[uuid.UUID, str | None, datetime, int]]:
+        """``(id, alias, created_at, run_count)`` per profile, newest first. No birth data."""
+        run_count = (
+            select(func.count())
+            .where(BirthProfile.id == any_(AnalysisRun.participant_ids))
+            .correlate(BirthProfile)
+            .scalar_subquery()
+        )
+        rows = await self.session.execute(
+            select(BirthProfile.id, BirthProfile.alias, BirthProfile.created_at, run_count)
+            .order_by(BirthProfile.created_at.desc(), BirthProfile.id)
+            .limit(limit)
+        )
+        return [(pid, alias, created, n) for pid, alias, created, n in rows]
+
+    async def report_participants(self, report_id: uuid.UUID) -> list[uuid.UUID] | None:
+        """Participant profile ids of the run(s) behind a report (in order), or None if unknown."""
+        rows = await self.session.execute(
+            select(AnalysisRun.participant_ids)
+            .join(ReportVersion, ReportVersion.analysis_id == AnalysisRun.id)
+            .where(ReportVersion.report_id == report_id)
+            .order_by(ReportVersion.version)
+        )
+        ids: list[uuid.UUID] = []
+        found = False
+        for (participants,) in rows:
+            found = True
+            ids.extend(p for p in participants if p not in ids)
+        return ids if found else None
+
+    async def orphans_after(self, profile_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+        """Co-participants left with no run once every run naming ``profile_ids`` is purged."""
+        rows = await self.session.execute(
+            select(AnalysisRun.participant_ids).where(
+                AnalysisRun.participant_ids.overlap(profile_ids)
+            )
+        )
+        candidates: list[uuid.UUID] = []
+        for (participants,) in rows:
+            candidates.extend(p for p in participants if p not in profile_ids + candidates)
+        orphans = []
+        for pid in candidates:
+            survivors = await self.session.scalar(
+                select(func.count()).where(
+                    AnalysisRun.participant_ids.contains([pid]),
+                    ~AnalysisRun.participant_ids.overlap(profile_ids),
+                )
+            )
+            if not survivors:
+                orphans.append(pid)
+        return orphans
+
     async def purge_impact(self, profile_id: uuid.UUID) -> dict[str, int]:
         """Dry-run counts of what ``purge_profile_and_dependents`` would delete."""
+        return await self.purge_impact_many([profile_id])
+
+    async def purge_impact_many(self, profile_ids: list[uuid.UUID]) -> dict[str, int]:
+        """Dry-run counts for purging all of ``profile_ids`` (shared runs counted once)."""
         s = self.session
-        run_ids = select(AnalysisRun.id).where(AnalysisRun.participant_ids.contains([profile_id]))
+        run_ids = select(AnalysisRun.id).where(AnalysisRun.participant_ids.overlap(profile_ids))
         versions = select(ReportVersion.report_id, ReportVersion.version).where(
             ReportVersion.analysis_id.in_(run_ids)
         )
@@ -244,7 +303,7 @@ class AnalysisRepository:
         )
         runs = await s.scalar(select(func.count()).select_from(run_ids.subquery()))
         prof = await s.scalar(
-            select(func.count()).select_from(BirthProfile).where(BirthProfile.id == profile_id)
+            select(func.count()).select_from(BirthProfile).where(BirthProfile.id.in_(profile_ids))
         )
         return {
             "alternative_interpretations": alt or 0,
