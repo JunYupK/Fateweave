@@ -182,6 +182,27 @@ def test_historical_civil_time_offset_flagged():
     assert any("CIVIL_TIME_OFFSET" in a.reasons for a in snap.alternatives)
 
 
+@pytest.mark.parametrize("year", [1905, 1910])
+def test_pre_1912_civil_time_offset_flagged(year):
+    # 1900-1911 Korean civil time was LMT (+8:27:52, to 1908-04-01) then UTC+8:30, so a
+    # 11:10 wall clock may be ~11:40 UTC+9: AST 10:38 (巳) vs ~11:08 (午) at Seoul.
+    snap = compute_chart(
+        birth(birth_date=f"{year}-07-01", birth_time=time(11, 10), longitude=126.9784)
+    )
+    assert snap.hour_pillar[1] == "巳"
+    assert "CIVIL_TIME_OFFSET_UNVERIFIED" in snap.warning_codes
+    assert snap.certainty == "PARTIAL"
+    alts = [a for a in snap.alternatives if "CIVIL_TIME_OFFSET" in a.reasons]
+    assert [a.hour_pillar[1] for a in alts] == ["午"]
+
+
+def test_1912_is_not_flagged():
+    snap = compute_chart(
+        birth(birth_date="1912-07-01", birth_time=time(11, 10), longitude=126.9784)
+    )
+    assert "CIVIL_TIME_OFFSET_UNVERIFIED" not in snap.warning_codes
+
+
 def test_sewoon_range():
     b = birth(birth_time=time(9, 0))
     assert compute_chart(b).sewoon == []

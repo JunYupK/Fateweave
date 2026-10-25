@@ -2,7 +2,7 @@
   "policy": {
     "version": "manse-v1",
     "library": "korean-saju==0.3.0",
-    "civil_time": "birth wall-clock time is read as fixed UTC+9 (KST); historical Korean offsets (UTC+8:30 1954-1961, DST 1948-1960 and 1987-1988) are NOT applied, only flagged as CIVIL_TIME_OFFSET alternatives",
+    "civil_time": "birth wall-clock time is read as fixed UTC+9 (KST); historical Korean offsets (LMT +8:27:52 to 1908-04-01, UTC+8:30 1908-1911 and 1954-1961, DST 1948-1960 and 1987-1988) are NOT applied, only flagged as CIVIL_TIME_OFFSET alternatives",
     "year_pillar": "立春 instant (absolute time)",
     "month_pillar": "節 instants (absolute time); KASI table 2000-2027, Meeus computation outside",
     "day_and_hour_pillar": "local mean solar time: KST + (longitude - 135) * 4 min; no equation of time",

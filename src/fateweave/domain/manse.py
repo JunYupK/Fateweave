@@ -2,8 +2,9 @@
 
 manse-v1 conventions (fixed; change them only with a new policy version):
 - Civil time: the birth wall clock is read as fixed UTC+9 (KST), which is what the library
-  assumes. Historical Korean offsets (UTC+8:30 in 1954-1961, DST in 1948-1960 and 1987-1988)
-  are not applied; those years get CIVIL_TIME_OFFSET_UNVERIFIED and shifted alternatives.
+  assumes. Historical Korean offsets (LMT +8:27:52 to 1908-04-01, UTC+8:30 to 1911 and in
+  1954-1961, DST in 1948-1960 and 1987-1988) are not applied; those years get
+  CIVIL_TIME_OFFSET_UNVERIFIED and shifted alternatives.
 - Year pillar: 立春 instant. Month pillar: 節 instants. Both on absolute time; solar terms come
   from the bundled KASI table (2000-2027) or the library's Meeus computation outside it.
 - Day and hour pillars: local mean solar time, KST + (longitude - 135) * 4 min (no equation
@@ -65,6 +66,7 @@ _MINUTES_PER_DAY = 1440
 # (first year, last year, wall-clock -> UTC+9 shifts in minutes) where Korean civil time was not
 # UTC+9 for at least part of the year. Whole years are flagged; exact transitions are not used.
 _CIVIL_OFFSET_ERAS: tuple[tuple[int, int, tuple[int, ...]], ...] = (
+    (1900, 1911, (30, 32)),  # LMT +8:27:52 until 1908-04-01, then UTC+8:30
     (1948, 1961, (-60, -30, 30)),
     (1987, 1988, (-60,)),
 )
