@@ -15,7 +15,8 @@ def make_engine(url: str) -> AsyncEngine:
     """Create an async engine; the URL must use the asyncpg driver."""
     if not url.startswith("postgresql+asyncpg://"):
         raise ValueError("database URL must start with postgresql+asyncpg://")
-    return create_async_engine(url, pool_pre_ping=True)
+    # hide_parameters: SQL error strings and logs never carry draft or birth data.
+    return create_async_engine(url, pool_pre_ping=True, hide_parameters=True)
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

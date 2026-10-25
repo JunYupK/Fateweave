@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str
     mcp_key: SecretStr
     public_host: str
+    # Direct app port stays on loopback; only the TLS proxy is public.
+    bind_host: str = "127.0.0.1"
+    port: int = 8080
 
 
 @lru_cache
