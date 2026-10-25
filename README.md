@@ -76,7 +76,18 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    writes a `600` custom-format dump. It is not installed in cron; suggested daily entry:
    `15 3 * * * BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1 PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass /opt/fateweave/deploy/backup.sh`.
    Verify dumps with `deploy/restore-check.sh <dump>` (restores into a disposable DB, prints row counts only, drops it).
-7. **Rollback:** app only: `git checkout <previous-tag>`, rebuild and `up -d`. Failed deploy: `docker compose -p fateweave -f deploy/compose.fateweave.yaml down`
+   `restore-check.sh` creates and drops a database, so run it as a role with CREATEDB (a DBA role or superuser),
+   not `fateweave_owner` (which has no CREATEDB).
+   **Encryption at rest** relies on OCI block-volume encryption (database files and dumps on the VM); Fateweave adds no
+   column-level encryption. Copy backups off-host only to encrypted storage (e.g. an encrypted OCI Object Storage bucket
+   or an encrypted volume), never to unencrypted media.
+7. **MCP key rotation:** generate a new key, e.g. `python3 -c 'import secrets; print(secrets.token_urlsafe(32))'`
+   (never put the key itself on a command line or in shell history); edit `/etc/fateweave/fateweave.env` (as root, keep mode
+   600) and replace the `FATEWEAVE_MCP_KEY=` value; restart so the container reads the env file again:
+   `docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d --force-recreate`; then update the
+   `X-Fateweave-Key` header value in the Claude connector settings. The old key stops working as soon as the container
+   is recreated; check with the no-key/old-key `401` and new-key `tools/list` items in `scripts/acceptance.md`.
+8. **Rollback:** app only: `git checkout <previous-tag>`, rebuild and `up -d`. Failed deploy: `docker compose -p fateweave -f deploy/compose.fateweave.yaml down`
    (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than
    running `alembic downgrade` on live data.
