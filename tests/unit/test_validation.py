@@ -125,11 +125,27 @@ def test_dotted_path_resolution(run):
 
 
 @pytest.mark.parametrize(
-    "key", ["positions.²", "positions.①", "counts..x", "a..b", "counts.木.x", "positions.x", ""]
+    "key",
+    [
+        "positions.²",
+        "positions.①",
+        "counts..x",
+        "a..b",
+        "counts.木.x",
+        "positions.x",
+        "",
+        "positions." + "9" * 5000,
+    ],
 )
 def test_malformed_paths_are_mismatch_not_crash(run, key):
     e = ev(run, "ELEMENTS")
     result = validate_report(draft([computed("ELEMENTS", [e.id], {key: "year"})]), run)
+    assert codes(result) == ["FACT_MISMATCH"]
+
+
+def test_path_through_scalar_is_mismatch(run):
+    e = ev(run, "SEWOON", year=2027)
+    result = validate_report(draft([computed("SEWOON", [e.id], {"year.x": 1})]), run)
     assert codes(result) == ["FACT_MISMATCH"]
 
 

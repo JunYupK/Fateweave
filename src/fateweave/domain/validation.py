@@ -53,7 +53,13 @@ def _resolve(operands: dict[str, Any], key: str) -> Any:
     for part in key.split("."):
         if isinstance(node, dict) and part in node:
             node = node[part]
-        elif isinstance(node, list) and part.isascii() and part.isdigit() and int(part) < len(node):
+        elif (
+            isinstance(node, list)
+            and part.isascii()
+            and part.isdigit()
+            and len(part) <= 9
+            and int(part) < len(node)
+        ):
             node = node[int(part)]
         else:
             return _MISSING
