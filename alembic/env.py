@@ -7,6 +7,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from fateweave.storage.db import select_migration_url
 from fateweave.storage.tables import Base
 
 config = context.config
@@ -17,15 +18,12 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Resolve the URL: programmatic attribute, then FATEWEAVE_DATABASE_URL, then -x url=..."""
-    url = (
-        config.attributes.get("url")
-        or os.environ.get("FATEWEAVE_DATABASE_URL")
-        or context.get_x_argument(as_dictionary=True).get("url")
+    """Resolve the URL: programmatic attribute, then -x url=..., then FATEWEAVE_DATABASE_URL."""
+    return select_migration_url(
+        attribute=config.attributes.get("url"),
+        x_url=context.get_x_argument(as_dictionary=True).get("url"),
+        env_url=os.environ.get("FATEWEAVE_DATABASE_URL"),
     )
-    if not url:
-        raise RuntimeError("Set FATEWEAVE_DATABASE_URL or pass `-x url=postgresql+asyncpg://...`")
-    return url
 
 
 def run_migrations_offline() -> None:

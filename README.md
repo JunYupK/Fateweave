@@ -28,6 +28,9 @@ docker stop fateweave-test-pg
 ```
 
 Migrations: `FATEWEAVE_DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head` (or `alembic -x url=...`).
+URL precedence: a programmatic `config.attributes["url"]` (tests), then `-x url=...`, then `FATEWEAVE_DATABASE_URL`.
+An explicit `-x url` always wins over an exported `FATEWEAVE_DATABASE_URL`, so `alembic -x url=<scratch> downgrade base`
+never touches the database in your environment.
 
 ## Deployment (existing OCI VM) / 배포
 

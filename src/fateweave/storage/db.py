@@ -19,6 +19,20 @@ def make_engine(url: str) -> AsyncEngine:
     return create_async_engine(url, pool_pre_ping=True, hide_parameters=True)
 
 
+def select_migration_url(
+    *, attribute: str | None, x_url: str | None, env_url: str | None
+) -> str:
+    """Alembic URL precedence: programmatic attribute > ``-x url=`` > FATEWEAVE_DATABASE_URL.
+
+    An explicit ``-x url`` must beat the ambient env var, so a command aimed at a scratch
+    database can never silently run against the database exported in the shell.
+    """
+    url = attribute or x_url or env_url
+    if not url:
+        raise RuntimeError("Set FATEWEAVE_DATABASE_URL or pass `-x url=postgresql+asyncpg://...`")
+    return url
+
+
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
 
