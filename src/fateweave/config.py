@@ -1,0 +1,22 @@
+from functools import lru_cache
+from typing import ClassVar
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="FATEWEAVE_", env_file=".env", extra="ignore")
+
+    MANSE_POLICY_VERSION: ClassVar[str] = "manse-v1"
+    RULE_VERSION: ClassVar[str] = "rules-v1"
+    REPORT_SCHEMA_VERSION: ClassVar[str] = "report-v1"
+
+    database_url: str
+    mcp_key: SecretStr
+    public_host: str
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
