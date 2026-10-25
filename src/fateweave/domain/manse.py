@@ -185,7 +185,7 @@ def compute_chart(
     if year < MIN_SUPPORTED_YEAR:
         raise BirthInputError(
             "UNSUPPORTED_DATE",
-            f"manse-v1 supports births from {MIN_SUPPORTED_YEAR}; got {birth.solar_date}",
+            f"manse-v1 supports births from {MIN_SUPPORTED_YEAR}",
         )
     if sewoon_years < 1:
         raise ValueError("sewoon_years must be >= 1")

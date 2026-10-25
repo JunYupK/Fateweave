@@ -180,3 +180,21 @@ async def test_storage_failure_maps_to_storage_unavailable():
         assert exc.value.code == "STORAGE_UNAVAILABLE"
     finally:
         await bad.dispose()
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        dict(birth_date="1990-02-30"),
+        dict(birth_date="1990-02-31", calendar="lunar"),
+        dict(birth_date="1990-05-15", leap_month=True),
+        dict(birth_date="0999-01-01"),
+        dict(birth_date="1990-05-15", timezone="America/New_York"),
+    ],
+)
+async def test_input_errors_do_not_leak_birth_data(engine: AsyncEngine, kw):
+    with pytest.raises(AnalysisError) as exc:
+        await _service(engine).prepare_analysis("individual", [_profile(**kw)])
+    assert exc.value.code == "INVALID_INPUT"
+    date_text = kw["birth_date"]
+    assert date_text not in exc.value.message and date_text not in str(exc.value)

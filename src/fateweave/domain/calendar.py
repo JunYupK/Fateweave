@@ -25,12 +25,12 @@ def _lunar_to_solar(text: str, leap: bool) -> date:
     if not (_LUNAR_MIN <= (year, month, day) <= _LUNAR_MAX):
         raise BirthInputError(
             "UNSUPPORTED_DATE",
-            f"lunar date {text} is outside the supported 1000-2050 range",
+            "lunar date is outside the supported 1000-2050 range",
         )
     cal = KoreanLunarCalendar()
     if not cal.setLunarDate(year, month, day, leap):
         kind = "leap " if leap else ""
-        raise BirthInputError("INVALID_LUNAR_DATE", f"no such {kind}lunar date: {text}")
+        raise BirthInputError("INVALID_LUNAR_DATE", f"no such {kind}lunar date")
     return date(cal.solarYear, cal.solarMonth, cal.solarDay)
 
 
@@ -46,13 +46,11 @@ def normalize_birth(profile: BirthProfileInput) -> NormalizedBirth:
         try:
             solar = date.fromisoformat(profile.birth_date)
         except ValueError as exc:
-            raise BirthInputError(
-                "INVALID_INPUT", f"not a valid Gregorian date: {profile.birth_date}"
-            ) from exc
+            raise BirthInputError("INVALID_INPUT", "not a valid Gregorian date") from exc
         if not (_SOLAR_MIN <= solar <= _SOLAR_MAX):
             raise BirthInputError(
                 "UNSUPPORTED_DATE",
-                f"solar date {profile.birth_date} is outside the supported "
+                "solar date is outside the supported "
                 f"{_SOLAR_MIN.isoformat()} to {_SOLAR_MAX.isoformat()} range",
             )
     else:

@@ -107,7 +107,7 @@ class AnalysisService:
                 for n in normalized
             ]
         except BirthInputError as exc:
-            raise AnalysisError("INVALID_INPUT", f"{exc.code}: {exc.message}") from exc
+            raise AnalysisError("INVALID_INPUT", f"{exc.code}: birth input rejected") from exc
         except Exception as exc:  # engine failure: no chart at all
             log.error("chart calculation failed: %s", type(exc).__name__)
             raise AnalysisError(
@@ -115,18 +115,10 @@ class AnalysisService:
             ) from exc
 
         facts = dict(zip(keys, charts, strict=True))
-        try:
-            if mode == "individual":
-                catalog: list[Evidence] = build_individual_evidence(charts[0], "self")
-            else:
-                catalog = build_couple_evidence(
-                    charts[0], charts[1], start_year, years=horizon_years
-                )
-        except Exception as exc:
-            log.error("evidence derivation failed: %s", type(exc).__name__)
-            raise AnalysisError(
-                "CALCULATION_UNCERTAIN", "evidence could not be derived"
-            ) from exc
+        if mode == "individual":
+            catalog: list[Evidence] = build_individual_evidence(charts[0], "self")
+        else:
+            catalog = build_couple_evidence(charts[0], charts[1], start_year, years=horizon_years)
 
         analysis_id = uuid.uuid4()
         prepared = PreparedAnalysis(
