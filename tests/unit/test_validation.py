@@ -124,6 +124,26 @@ def test_dotted_path_resolution(run):
     assert codes(validate_report(draft([bad]), run)) == ["FACT_MISMATCH"]
 
 
+@pytest.mark.parametrize(
+    "key", ["positions.²", "positions.①", "counts..x", "a..b", "counts.木.x", "positions.x", ""]
+)
+def test_malformed_paths_are_mismatch_not_crash(run, key):
+    e = ev(run, "ELEMENTS")
+    result = validate_report(draft([computed("ELEMENTS", [e.id], {key: "year"})]), run)
+    assert codes(result) == ["FACT_MISMATCH"]
+
+
+def test_rejects_values_mixed_across_evidences(run):
+    a = ev(run, "SEWOON", year=2027)
+    b = ev(run, "SEWOON", year=2028)
+    mixed = computed("SEWOON", [a.id, b.id], {"year": 2028, "pillar": a.operands["pillar"]})
+    result = validate_report(draft([mixed]), run)
+    assert codes(result) == ["FACT_MISMATCH"]
+    assert result.errors[0].path == "claims.0.computed_values.year"  # tie: first evidence
+    ok = computed("SEWOON", [a.id, b.id], {"year": 2028, "pillar": b.operands["pillar"]})
+    assert validate_report(draft([ok]), run).valid
+
+
 def test_rejects_missing_section(run):
     secs = sections()
     del secs["limitations"]

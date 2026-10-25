@@ -53,7 +53,7 @@ def _resolve(operands: dict[str, Any], key: str) -> Any:
     for part in key.split("."):
         if isinstance(node, dict) and part in node:
             node = node[part]
-        elif isinstance(node, list) and part.isdigit() and int(part) < len(node):
+        elif isinstance(node, list) and part.isascii() and part.isdigit() and int(part) < len(node):
             node = node[int(part)]
         else:
             return _MISSING
@@ -103,18 +103,30 @@ def _check_computed(
             )
         )
         return errors
-    for key, claimed in claim.computed_values.items():
-        path = f"{base}.computed_values.{key}"
-        resolved = [v for v in (_resolve(ev.operands, key) for ev in cited) if v is not _MISSING]
-        if not resolved:
-            if cited:
-                errors.append(
-                    _err("FACT_MISMATCH", f"key {key} not found in cited evidence operands", path)
+    if not cited:
+        return errors
+    # All keys must be satisfied by ONE cited evidence; values may not be mixed across evidences.
+    best_failures: list[ValidationError] | None = None
+    for ev in cited:
+        failures: list[ValidationError] = []
+        for key, claimed in claim.computed_values.items():
+            path = f"{base}.computed_values.{key}"
+            actual = _resolve(ev.operands, key)
+            if actual is _MISSING:
+                failures.append(_err("FACT_MISMATCH", f"key {key} not found in {ev.id}", path))
+            elif str(actual) != str(claimed):
+                failures.append(
+                    _err(
+                        "FACT_MISMATCH",
+                        f"key {key}: expected {actual}, claimed {claimed} ({ev.id})",
+                        path,
+                    )
                 )
-        elif not any(str(v) == str(claimed) for v in resolved):
-            errors.append(
-                _err("FACT_MISMATCH", f"key {key}: expected {resolved[0]}, claimed {claimed}", path)
-            )
+        if not failures:
+            return errors
+        if best_failures is None or len(failures) < len(best_failures):
+            best_failures = failures
+    errors.extend(best_failures or [])
     return errors
 
 
