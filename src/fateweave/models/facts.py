@@ -3,6 +3,7 @@
 import hashlib
 import json
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -112,3 +113,24 @@ class Evidence(BaseModel):
     text_ko: str
     source_ref: str | None
     assumptions: list[str]
+
+
+class PreparedAnalysis(BaseModel):
+    """A computed, persisted snapshot that reports are validated against.
+
+    `facts` is keyed by subject key ("self", or "A"/"B" for couples). `missing_data` holds
+    PII-free limitation notes.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    analysis_id: UUID
+    mode: Literal["individual", "couple"]
+    facts: dict[str, ChartSnapshot]
+    evidence_catalog: list[Evidence]
+    missing_data: list[str]
+    policy_version: str
+    rule_version: str
+    horizon_years: int
+    start_year: int
+    status: Literal["PREPARED", "VALIDATION_FAILED", "FINALIZED", "ABANDONED"] = "PREPARED"
