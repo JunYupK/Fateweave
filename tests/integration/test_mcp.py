@@ -3,10 +3,10 @@
 import uuid
 from datetime import date
 
+from helpers import valid_draft
 from mcp_http import MCPClient, running_app, services_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
-from test_reports import valid_draft
 
 from fateweave.domain.validation import REQUIRED_SECTIONS
 from fateweave.models.facts import PreparedAnalysis

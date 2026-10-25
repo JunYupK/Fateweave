@@ -4,6 +4,7 @@ import logging
 from datetime import date
 
 import pytest
+from helpers import valid_draft
 from mcp_http import (
     MCP_HOST,
     MCP_KEY,
@@ -14,7 +15,6 @@ from mcp_http import (
     services_for,
 )
 from sqlalchemy.ext.asyncio import AsyncEngine
-from test_reports import valid_draft
 from uvicorn.logging import AccessFormatter
 
 from fateweave.config import Settings

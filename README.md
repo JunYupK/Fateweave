@@ -68,3 +68,7 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than
    running `alembic downgrade` on live data.
+
+## ChatGPT handoff
+
+Reports are generated and saved from a Claude chat through the remote MCP connector. To continue in ChatGPT (or any other assistant), call `get_report` with `format='markdown'` and paste the whole Markdown into the other chat, then ask follow-up questions about it. The Markdown carries `report_id`/`version`, the rule/manse versions, the `structured_fact_validation` scope badge and an evidence appendix, so every cited evidence ID can be looked up in the same document. Only structured computed claims are machine-checked; interpretations are traditional myeongri readings, not verified probabilities. Pasting a report shares it with that service, so do it only for reports you are comfortable sharing. The manual end-to-end checklist (real Claude chat plus ChatGPT handoff) is section C of `scripts/acceptance.md` and is pending manual (R4).

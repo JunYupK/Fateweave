@@ -47,3 +47,22 @@ After deployment (replace `$HOST` with the public host, key from the secret file
 - [ ] Daily backup: run `deploy/backup.sh` once manually, check file mode `600`, then
       `deploy/restore-check.sh <dump>` shows expected table counts and drops its disposable DB.
 - [ ] Rollback rehearsal as documented in the README.
+
+## C. Claude 일반 채팅 실제 인수 - pending manual (R4)
+
+상태: **pending manual (R4)** - 구현자는 실제 Claude 계정/OCI 배포에 접근할 수 없어 아래를 실행하지 않았다.
+결정적 비-LLM 경로만 `tests/integration/test_e2e_flow.py`가 검증한다. 모든 항목은 사람이 직접 확인하기 전까지
+체크하지 않는다. 실제 생년월일/리포트를 저장소·CI·이슈에 붙여넣지 말 것.
+
+- [ ] **커넥터 등록**: Claude 설정의 Connectors에서 custom remote connector 추가. 이름 `Fateweave`,
+      URL `https://<actual-host>/mcp`, 고정 요청 헤더 `X-Fateweave-Key` (값은 서버 시크릿 파일의 키; 채팅/히스토리에 노출 금지).
+- [ ] **대화별 활성화**: 새 대화에서 Fateweave 도구를 활성화하고 다섯 도구가 보이는지 확인.
+- [ ] **개인 케이스 1건 이상**: 개인 결혼 사주 분석 요청 -> `prepare_analysis` -> `finalize_report` 순서로 호출되는지 확인.
+- [ ] **커플 케이스 1건 이상**: 커플 궁합(결혼 궁합 / 관계 잠재력 / 공통 유리 시기 3영역) 요청 -> 동일 흐름 확인.
+- [ ] **저장 주장 시점**: Claude가 "저장했다"고 말하는 것은 `finalize_report`가 `FINALIZED`를 반환한 뒤에만 이루어진다.
+      `VALIDATION_FAILED`/오류/미호출 시에는 저장 성공을 주장하지 않고 수정 후 재제출하거나 미저장을 밝힌다.
+- [ ] **저장 검증**: Claude가 알려준 `report_id`/`version`으로 `get_report`를 호출해 같은 값과 `available_versions`가 나오는지 확인.
+- [ ] **출생시간 미상 케이스**(선택): 시주가 확정되지 않고 `missing_data`에 한계가 표시되는지 확인.
+- [ ] **ChatGPT handoff**: `get_report(format='markdown')` 결과 전체를 별도 ChatGPT 대화에 붙여넣고,
+      "부록의 어떤 근거 ID가 이 결론을 뒷받침하는가?" 같은 근거 기반 후속 질문을 하여 답이 부록의 근거 ID를 인용하는지 확인.
+      ChatGPT는 리포트에 없는 계산을 새로 만들어내서는 안 된다.
