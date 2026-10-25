@@ -19,7 +19,7 @@ from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
 from fateweave.models.facts import ChartSnapshot, Evidence, PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
-from fateweave.storage.repository import AnalysisRepository
+from fateweave.storage.repository import AnalysisRepository, RunRow
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,15 @@ def seoul_today() -> date:
 def snapshot_hash(snapshot: dict[str, Any]) -> str:
     canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def prepared_from_row(run: RunRow) -> PreparedAnalysis:
+    """Rebuild a PreparedAnalysis from a stored run after verifying its snapshot hash."""
+    if snapshot_hash(run.snapshot) != run.snapshot_hash:
+        raise AnalysisError(
+            "SNAPSHOT_INTEGRITY", "stored snapshot does not match its recorded hash"
+        )
+    return PreparedAnalysis(analysis_id=run.id, status=run.status, **run.snapshot)
 
 
 def _missing_data(facts: dict[str, ChartSnapshot]) -> list[str]:
@@ -170,8 +179,4 @@ class AnalysisService:
             raise AnalysisError("STORAGE_UNAVAILABLE", "the analysis could not be loaded") from exc
         if run is None:
             return None
-        if snapshot_hash(run.snapshot) != run.snapshot_hash:
-            raise AnalysisError(
-                "SNAPSHOT_INTEGRITY", "stored snapshot does not match its recorded hash"
-            )
-        return PreparedAnalysis(analysis_id=run.id, status=run.status, **run.snapshot)
+        return prepared_from_row(run)

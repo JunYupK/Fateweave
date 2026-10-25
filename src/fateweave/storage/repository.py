@@ -74,6 +74,27 @@ class AnalysisRepository:
     async def get_run(self, id: uuid.UUID) -> RunRow | None:
         return await self.session.get(AnalysisRun, id)
 
+    async def lock_run(self, id: uuid.UUID) -> RunRow | None:
+        """Load a run with ``SELECT ... FOR UPDATE`` (held until the caller's transaction ends)."""
+        result = await self.session.execute(
+            select(AnalysisRun)
+            .where(AnalysisRun.id == id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_report_by_idempotency_key(
+        self, analysis_id: uuid.UUID, idempotency_key: str
+    ) -> ReportRow | None:
+        result = await self.session.execute(
+            select(ReportVersion).where(
+                ReportVersion.analysis_id == analysis_id,
+                ReportVersion.idempotency_key == idempotency_key,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def update_run_status(
         self,
         id: uuid.UUID,
