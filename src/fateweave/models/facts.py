@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -93,3 +93,22 @@ class ChartSnapshot(BaseModel):
         payload = self.model_dump(mode="json", exclude={"facts_hash"})
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class Evidence(BaseModel):
+    """One verifiable fact derived from a ChartSnapshot (built in domain/rules.py).
+
+    `id` is `E-{subject_key}-{rule_code}-{sha256(canonical operands)[:8]}`; `operands` are the
+    values a citation is checked against. `interpretation_cue` items only name a
+    school-dependent premise and never assert a computed result.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    kind: Literal["computed", "rule_derived", "interpretation_cue"]
+    rule_code: str
+    operands: dict[str, Any]
+    text_ko: str
+    source_ref: str | None
+    assumptions: list[str]
