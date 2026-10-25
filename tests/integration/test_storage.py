@@ -103,6 +103,12 @@ async def test_immutable_versions(engine: AsyncEngine):
         assert res.rowcount == 1
 
 
+async def _reset_status(maker, run_id):
+    async with maker() as s:
+        await AnalysisRepository(s).update_run_status(run_id, "PREPARED")
+        await s.commit()
+
+
 async def test_transaction_rollback_keeps_prepared(engine: AsyncEngine):
     maker = make_sessionmaker(engine)
     async with maker() as s:
@@ -114,6 +120,17 @@ async def test_transaction_rollback_keeps_prepared(engine: AsyncEngine):
             run_id, "VALIDATION_FAILED", last_validation_errors=[{"e": 1}], increment_attempt=True
         )
         await s.rollback()
+    async with maker() as s:
+        repo = AnalysisRepository(s)
+        await repo.update_run_status(run_id, "ABANDONED", last_validation_errors=None)
+        await s.commit()
+    async with engine.connect() as conn:
+        is_null = await conn.scalar(
+            text("SELECT last_validation_errors IS NULL FROM analysis_runs WHERE id = :i"),
+            {"i": run_id},
+        )
+        assert is_null is True
+    await _reset_status(maker, run_id)
     async with maker() as s:
         run = await AnalysisRepository(s).get_run(run_id)
         assert run.status == "PREPARED"

@@ -61,7 +61,7 @@ class AnalysisRun(Base):
     policy_version: Mapped[str] = mapped_column(Text)
     rule_version: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="PREPARED", server_default="PREPARED")
-    last_validation_errors: Mapped[Any | None] = mapped_column(JSONB)
+    last_validation_errors: Mapped[Any | None] = mapped_column(JSONB(none_as_null=True))
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
