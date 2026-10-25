@@ -177,6 +177,82 @@ class AnalysisRepository:
         )
         return list((await self.session.execute(stmt)).scalars())
 
+    async def get_latest_report(self, id: uuid.UUID) -> ReportRow | None:
+        result = await self.session.execute(
+            select(ReportVersion)
+            .where(ReportVersion.report_id == id)
+            .order_by(ReportVersion.version.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_report_versions(self, id: uuid.UUID) -> list[ReportRow]:
+        result = await self.session.execute(
+            select(ReportVersion)
+            .where(ReportVersion.report_id == id)
+            .order_by(ReportVersion.version)
+        )
+        return list(result.scalars())
+
+    async def list_alternatives(self, report_id: uuid.UUID) -> list[AlternativeInterpretation]:
+        result = await self.session.execute(
+            select(AlternativeInterpretation)
+            .where(AlternativeInterpretation.report_id == report_id)
+            .order_by(AlternativeInterpretation.created_at, AlternativeInterpretation.id)
+        )
+        return list(result.scalars())
+
+    async def participant_aliases(
+        self, runs: dict[uuid.UUID, list[uuid.UUID]]
+    ) -> dict[uuid.UUID, list[str | None]]:
+        """Aliases per run id (in participant order) for ``{run_id: participant_ids}``."""
+        wanted = {pid for ids in runs.values() for pid in ids}
+        alias: dict[uuid.UUID, str | None] = {}
+        if wanted:
+            rows = await self.session.execute(
+                select(BirthProfile.id, BirthProfile.alias).where(BirthProfile.id.in_(wanted))
+            )
+            alias = {pid: a for pid, a in rows}
+        return {rid: [alias.get(pid) for pid in ids] for rid, ids in runs.items()}
+
+    async def profile_exists(self, profile_id: uuid.UUID) -> bool:
+        result = await self.session.execute(
+            select(BirthProfile.id).where(BirthProfile.id == profile_id)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def purge_impact(self, profile_id: uuid.UUID) -> dict[str, int]:
+        """Dry-run counts of what ``purge_profile_and_dependents`` would delete."""
+        s = self.session
+        run_ids = select(AnalysisRun.id).where(AnalysisRun.participant_ids.contains([profile_id]))
+        versions = select(ReportVersion.report_id, ReportVersion.version).where(
+            ReportVersion.analysis_id.in_(run_ids)
+        )
+        alt = await s.scalar(
+            select(func.count())
+            .select_from(AlternativeInterpretation)
+            .where(
+                tuple_(
+                    AlternativeInterpretation.report_id, AlternativeInterpretation.report_version
+                ).in_(versions)
+            )
+        )
+        rep = await s.scalar(
+            select(func.count())
+            .select_from(ReportVersion)
+            .where(ReportVersion.analysis_id.in_(run_ids))
+        )
+        runs = await s.scalar(select(func.count()).select_from(run_ids.subquery()))
+        prof = await s.scalar(
+            select(func.count()).select_from(BirthProfile).where(BirthProfile.id == profile_id)
+        )
+        return {
+            "alternative_interpretations": alt or 0,
+            "report_versions": rep or 0,
+            "analysis_runs": runs or 0,
+            "birth_profiles": prof or 0,
+        }
+
     async def add_alternative(
         self,
         *,

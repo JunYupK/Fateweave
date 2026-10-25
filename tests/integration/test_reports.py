@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from datetime import date, time
 
@@ -7,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from fateweave.domain.rules import evidence_digest
 from fateweave.domain.validation import REQUIRED_SECTIONS
 from fateweave.models.facts import PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
@@ -17,6 +19,7 @@ from fateweave.services.reports import (
     FinalizeResult,
     ReportError,
     ReportService,
+    payload_hash,
     render_markdown_v1,
 )
 from fateweave.storage.db import make_sessionmaker
@@ -335,3 +338,281 @@ async def test_bad_idempotency_key_is_invalid_input(engine: AsyncEngine, key: st
         await _reports(engine).finalize_report(prepared.analysis_id, valid_draft(prepared), key)
     assert exc.value.code == "INVALID_INPUT"
     assert await _count_reports(engine) == 0
+
+
+# ---- Task 10: retrieval, alternatives, corrections, purge ---------------------------------
+
+
+async def _finalized(engine: AsyncEngine, mode: str = "individual"):
+    prepared = await _prepared(engine, mode)
+    svc = _reports(engine)
+    result = await svc.finalize_report(prepared.analysis_id, valid_draft(prepared), "key-1")
+    assert result.status == "FINALIZED"
+    return prepared, svc, result.report_id
+
+
+async def _version_rows(engine: AsyncEngine, report_id: uuid.UUID):
+    async with engine.connect() as conn:
+        return (
+            await conn.execute(
+                text("SELECT * FROM report_versions WHERE report_id = :r ORDER BY version"),
+                {"r": report_id},
+            )
+        ).all()
+
+
+async def test_get_markdown_includes_versions_and_caveats(engine: AsyncEngine):
+    prepared, svc, rid = await _finalized(engine)
+    ref = prepared.evidence_catalog[0].id
+    await svc.add_alternative_interpretation(rid, "자평명리", "다른 학파의 해석", [ref])
+    await svc.create_correction(rid, valid_draft(prepared, caveats=["수정된 주의"]), "오타 정정")
+
+    view = await svc.get_report(rid)
+    assert view.version == 2 and view.available_versions == [1, 2]
+    assert view.format == "markdown" and view.report_type == "individual"
+    assert view.analysis_id == prepared.analysis_id
+    assert (view.manse_version, view.rule_version, view.report_schema_version) == (
+        "manse-v1",
+        "rules-v1",
+        "report-v1",
+    )
+    assert view.evidence_digest == evidence_digest(prepared.evidence_catalog)
+    assert view.correction_reason == "오타 정정"
+    assert view.validation["structured_fact_validation"] == "passed"
+    md = view.content
+    stored = (await _version_rows(engine, rid))[1].markdown
+    assert md.startswith(stored.rstrip("\n"))
+    assert "수정된 주의" in md and BADGE in md
+    assert "## 버전 이력" in md and "버전 1" in md and "오타 정정" in md
+    assert "## 대안 해석 (기준 리포트와 별도)" in md and "다른 학파의 해석" in md and ref in md
+    assert md.index("## 버전 이력") > md.index("## 부록: 인용 근거")
+    assert [a.school for a in view.alternatives] == ["자평명리"]
+    assert view.alternatives[0].report_version == 1
+
+    v1 = await svc.get_report(rid, version=1)
+    assert v1.version == 1 and v1.correction_reason is None
+    as_json = await svc.get_report(rid, version=1, format="json")
+    assert isinstance(as_json.content, dict) and as_json.content["report_type"] == "individual"
+
+
+async def test_list_filters_and_limits(engine: AsyncEngine):
+    svc = _reports(engine)
+    ids: dict[str, list[uuid.UUID]] = {}
+    prepared_by_report = {}
+    for mode in ("individual", "couple", "individual"):
+        prepared = await _prepared(engine, mode)
+        r = await svc.finalize_report(prepared.analysis_id, valid_draft(prepared), "k")
+        ids.setdefault(mode, []).append(r.report_id)
+        prepared_by_report[r.report_id] = prepared
+    first = ids["individual"][0]
+    await svc.create_correction(first, valid_draft(prepared_by_report[first]), "정정")
+
+    everything = await svc.list_reports()
+    assert len(everything) == 3
+    stamps = [s.created_at for s in everything]
+    assert stamps == sorted(stamps, reverse=True)
+    corrected = next(s for s in everything if s.report_id == first)
+    assert corrected.latest_version == 2 and corrected.aliases == [None]
+    assert everything[0].report_id == first  # newest row is the correction
+
+    couples = await svc.list_reports(mode="couple")
+    assert [s.report_id for s in couples] == ids["couple"] and len(couples[0].aliases) == 2
+    assert len(await svc.list_reports(limit=2)) == 2
+    for bad in (0, 51, -1):
+        with pytest.raises(ReportError) as exc:
+            await svc.list_reports(limit=bad)
+        assert exc.value.code == "INVALID_INPUT"
+    assert "1990-05-15" not in str([s.model_dump(mode="json") for s in everything])
+
+
+async def test_alternative_does_not_modify_canonical(engine: AsyncEngine):
+    prepared, svc, rid = await _finalized(engine)
+    before = await _version_rows(engine, rid)
+    ref = prepared.evidence_catalog[0].id
+    alt = await svc.add_alternative_interpretation(rid, " 자평명리 ", "대안 본문", [ref])
+    assert alt.report_id == rid and alt.report_version == 1
+    assert alt.school == "자평명리" and alt.evidence_refs == [ref]
+    assert await _version_rows(engine, rid) == before
+    async with engine.connect() as conn:
+        row = (await conn.execute(text("SELECT * FROM alternative_interpretations"))).one()
+    assert row.id == alt.id and row.content == "대안 본문" and row.evidence_refs == [ref]
+
+    await svc.create_correction(rid, valid_draft(prepared, caveats=["다름"]), "사유")
+    later = await svc.add_alternative_interpretation(rid, "다른 학파", "두번째", [])
+    assert later.report_version == 2
+
+
+@pytest.mark.parametrize(
+    ("school", "content", "refs", "code"),
+    [
+        ("s", "c", ["E-nope"], "UNKNOWN_EVIDENCE"),
+        ("  ", "c", [], "INVALID_INPUT"),
+        ("s", "   ", [], "INVALID_INPUT"),
+        pytest.param("s", "x" * 20_001, [], "REPORT_TOO_LARGE", id="too-large"),
+        ("s", "결혼 확률 80%", [], "UNSUPPORTED_CLAIM"),
+    ],
+)
+async def test_invalid_evidence_for_alternative_rejected(
+    engine: AsyncEngine, school: str, content: str, refs: list[str], code: str
+):
+    _, svc, rid = await _finalized(engine)
+    with pytest.raises(ReportError) as exc:
+        await svc.add_alternative_interpretation(rid, school, content, refs)
+    assert exc.value.code == code
+    async with engine.connect() as conn:
+        sql = text("SELECT count(*) FROM alternative_interpretations")
+        assert (await conn.execute(sql)).scalar_one() == 0
+
+
+async def test_alternative_for_unknown_report_not_found(engine: AsyncEngine):
+    with pytest.raises(ReportError) as exc:
+        await _reports(engine).add_alternative_interpretation(uuid.uuid4(), "s", "c", [])
+    assert exc.value.code == "REPORT_NOT_FOUND"
+
+
+async def test_correction_preserves_previous_version(engine: AsyncEngine):
+    prepared, svc, rid = await _finalized(engine)
+    (v1_before,) = await _version_rows(engine, rid)
+    corrected = valid_draft(prepared, caveats=["정정된 주의사항"])
+    view = await svc.create_correction(rid, corrected, "  근거 표현 수정  ")
+    assert view.version == 2 and view.report_id == rid
+
+    v1, v2 = await _version_rows(engine, rid)
+    assert v1 == v1_before
+    assert v2.idempotency_key is None and v2.correction_reason == "근거 표현 수정"
+    assert v2.payload_hash == payload_hash(corrected) != v1.payload_hash
+    assert v2.validation["structured_fact_validation"] == "passed"
+    assert v2.validation["corrects_version"] == 1
+    assert "- version: 2" in v2.markdown
+    assert "정정" in v2.markdown and "근거 표현 수정" in v2.markdown and "버전 1" in v2.markdown
+    assert "1990-05-15" not in v2.markdown
+
+    view3 = await svc.create_correction(rid, corrected, "또 정정")
+    assert view3.version == 3 and (await svc.get_report(rid, version=1)).version == 1
+
+    with pytest.raises(ReportError) as exc:
+        await svc.create_correction(rid, corrected, "   ")
+    assert exc.value.code == "INVALID_INPUT"
+    with pytest.raises(ReportError) as exc:
+        await svc.create_correction(rid, invalid_draft(prepared), "사유")
+    assert exc.value.code == "VALIDATION_FAILED"
+    assert [e.code for e in exc.value.validation_errors] == ["FACT_MISMATCH"]
+    with pytest.raises(ReportError) as exc:
+        await svc.create_correction(uuid.uuid4(), corrected, "사유")
+    assert exc.value.code == "REPORT_NOT_FOUND"
+    assert len(await _version_rows(engine, rid)) == 3
+
+
+async def test_parallel_corrections_get_distinct_versions(engine: AsyncEngine):
+    prepared, svc, rid = await _finalized(engine)
+    drafts = [valid_draft(prepared, caveats=[f"c{i}"]) for i in range(4)]
+    await asyncio.gather(*(svc.create_correction(rid, d, f"r{i}") for i, d in enumerate(drafts)))
+    assert [r.version for r in await _version_rows(engine, rid)] == [1, 2, 3, 4, 5]
+
+
+async def test_not_found_is_not_an_empty_report(engine: AsyncEngine):
+    _, svc, rid = await _finalized(engine)
+    for args in ((uuid.uuid4(), None), (rid, 9)):
+        with pytest.raises(ReportError) as exc:
+            await svc.get_report(*args)
+        assert exc.value.code == "REPORT_NOT_FOUND"
+
+
+async def test_retrieval_storage_failure_maps_to_unavailable(
+    engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+):
+    _, svc, rid = await _finalized(engine)
+
+    async def boom(self, *a, **kw):
+        raise OperationalError("SELECT", {}, ConnectionError("down"))
+
+    monkeypatch.setattr(AnalysisRepository, "get_latest_report", boom)
+    with pytest.raises(ReportError) as exc:
+        await svc.get_report(rid)
+    assert exc.value.code == "STORAGE_UNAVAILABLE"
+
+
+async def _counts(engine: AsyncEngine) -> dict[str, int]:
+    tables = ("birth_profiles", "analysis_runs", "report_versions", "alternative_interpretations")
+    async with engine.connect() as conn:
+        return {
+            t: (await conn.execute(text(f"SELECT count(*) FROM {t}"))).scalar_one() for t in tables
+        }
+
+
+async def _purge_fixture(engine: AsyncEngine):
+    """An unrelated individual report plus a couple report with an alternative."""
+    svc = _reports(engine)
+    _, _, other_rid = await _finalized(engine)
+    couple = await _prepared(engine, "couple")
+    res = await svc.finalize_report(couple.analysis_id, valid_draft(couple), "c")
+    await svc.add_alternative_interpretation(
+        res.report_id, "학파", "대안", [couple.evidence_catalog[0].id]
+    )
+    async with engine.connect() as conn:
+        pids = (
+            await conn.execute(
+                text("SELECT participant_ids FROM analysis_runs WHERE id = :i"),
+                {"i": couple.analysis_id},
+            )
+        ).scalar_one()
+    return other_rid, res.report_id, pids
+
+
+async def test_purge_removes_dependent_personal_data_only(
+    engine: AsyncEngine, test_db_url, caplog: pytest.LogCaptureFixture
+):
+    from fateweave.admin import main
+
+    other_rid, couple_rid, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    assert await _counts(engine) == {
+        "birth_profiles": 3,
+        "analysis_runs": 2,
+        "report_versions": 2,
+        "alternative_interpretations": 1,
+    }
+
+    # Dry run: reports impact only, deletes nothing.
+    assert await asyncio.to_thread(main, ["purge-profile", "--profile-id", str(pids[0])], url) == 0
+    assert (await _counts(engine))["birth_profiles"] == 3
+
+    caplog.set_level("INFO", logger="fateweave.audit")
+    argv = ["purge-profile", "--profile-id", str(pids[0]), "--confirm"]
+    assert await asyncio.to_thread(main, argv, url) == 0
+    assert await _counts(engine) == {
+        "birth_profiles": 2,  # unrelated profile + the couple's partner survive
+        "analysis_runs": 1,
+        "report_versions": 1,
+        "alternative_interpretations": 0,
+    }
+    svc = _reports(engine)
+    assert (await svc.get_report(other_rid)).report_id == other_rid
+    with pytest.raises(ReportError) as exc:
+        await svc.get_report(couple_rid)
+    assert exc.value.code == "REPORT_NOT_FOUND"
+    async with engine.connect() as conn:
+        left = (await conn.execute(text("SELECT id FROM birth_profiles"))).scalars().all()
+    assert pids[1] in left and pids[0] not in left
+
+    events = [json.loads(r.getMessage()) for r in caplog.records if r.name == "fateweave.audit"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["action"] == "purge-profile" and event["profile_id"] == str(pids[0])
+    assert event["counts"]["report_versions"] == 1 and event["timestamp"].endswith("+00:00")
+    assert set(event) == {"action", "profile_id", "counts", "timestamp"}
+
+
+async def test_purge_cli_dry_run_output_and_missing_profile(
+    engine: AsyncEngine, test_db_url, capsys: pytest.CaptureFixture
+):
+    from fateweave.admin import main
+
+    _, _, pids = await _purge_fixture(engine)
+    url = test_db_url.render_as_string(hide_password=False)
+    assert await asyncio.to_thread(main, ["purge-profile", "--profile-id", str(pids[0])], url) == 0
+    out = capsys.readouterr().out
+    assert "--confirm" in out and "report_versions: 1" in out and "analysis_runs: 1" in out
+
+    argv = ["purge-profile", "--profile-id", str(uuid.uuid4()), "--confirm"]
+    assert await asyncio.to_thread(main, argv, url) == 2
