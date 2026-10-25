@@ -16,6 +16,8 @@ def main() -> None:
         host=settings.bind_host,
         port=settings.port,
         access_log=True,
+        proxy_headers=settings.proxy_headers,
+        forwarded_allow_ips=settings.forwarded_allow_ips,
     )
 
 

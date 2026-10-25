@@ -28,3 +28,43 @@ docker stop fateweave-test-pg
 ```
 
 Migrations: `FATEWEAVE_DATABASE_URL=postgresql+asyncpg://... uv run alembic upgrade head` (or `alembic -x url=...`).
+
+## Deployment (existing OCI VM) / 배포
+
+Files live in `deploy/`; live acceptance checks are in `scripts/acceptance.md`. Fateweave runs as one
+container (`fateweave-api`, compose project `fateweave`) next to existing services. It uses the
+existing PostgreSQL instance (no Postgres service in compose), no shared Docker networks, and
+publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
+
+1. **Database (DBA, once):** `psql -X -v ON_ERROR_STOP=1 -v owner_pw=... -v app_pw=... -d postgres -f deploy/postgres-init.sql`
+   creates `fateweave_owner` (migrations + admin purge) and `fateweave_app` (runtime, DML only; no DELETE,
+   and no UPDATE on `report_versions`/`alternative_interpretations`). Run it again after the first migration.
+   The immutability triggers can be bypassed by any role that can `SET fateweave.maintenance`, so the missing
+   UPDATE/DELETE grants are what protect report records from the app role.
+2. **Secrets:** create `/etc/fateweave/fateweave.env` (root:root, mode 600, never committed) with the names in
+   `.env.example`. `FATEWEAVE_DATABASE_URL` uses the `fateweave_app` role; if PostgreSQL is on the VM host use
+   `host.docker.internal` as its host (compose maps it with `host-gateway`). Set `FATEWEAVE_ENV_FILE` to use another path.
+   Do not paste `docker compose config` output anywhere: it inlines the env file. Validate with `config -q`.
+3. **Build and migrate** (migrations use the owner URL, passed from your shell environment, not argv):
+   ```bash
+   export FATEWEAVE_DATABASE_URL='postgresql+asyncpg://fateweave_owner:...@host.docker.internal:5432/fateweave'
+   docker compose -p fateweave -f deploy/compose.fateweave.yaml build
+   docker compose -p fateweave -f deploy/compose.fateweave.yaml run --rm -e FATEWEAVE_DATABASE_URL fateweave-api alembic upgrade head
+   unset FATEWEAVE_DATABASE_URL
+   docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d
+   ```
+4. **Nginx:** render `deploy/nginx-fateweave.conf` with `envsubst '${FATEWEAVE_PUBLIC_HOST}'`, set real certificate paths
+   (reuse an existing cert only if its SANs cover the host), `nginx -t && nginx -s reload`. The vhost logs without
+   request headers, proxies `/mcp` and `/healthz`, and 404s everything else. uvicorn trusts `X-Forwarded-*` only from
+   `FATEWEAVE_FORWARDED_ALLOW_IPS` (compose sets the Docker bridge range; default outside Docker is `127.0.0.1`).
+5. **Data retention:** report and profile data are kept until deleted via the admin CLI. Run it with the owner role:
+   `docker compose -p fateweave -f deploy/compose.fateweave.yaml run --rm -e FATEWEAVE_DATABASE_URL fateweave-api python -m fateweave.admin purge-profile --profile-id UUID [--confirm]`
+   (dry run without `--confirm`).
+6. **Backups:** `deploy/backup.sh` (needs `BACKUP_DIR`, optional `KEEP_DAYS`, default 14; credentials via `PGPASSFILE`/env)
+   writes a `600` custom-format dump. It is not installed in cron; suggested daily entry:
+   `15 3 * * * BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1 PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass /opt/fateweave/deploy/backup.sh`.
+   Verify dumps with `deploy/restore-check.sh <dump>` (restores into a disposable DB, prints row counts only, drops it).
+7. **Rollback:** app only: `git checkout <previous-tag>`, rebuild and `up -d`. Failed deploy: `docker compose -p fateweave -f deploy/compose.fateweave.yaml down`
+   (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
+   in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than
+   running `alembic downgrade` on live data.

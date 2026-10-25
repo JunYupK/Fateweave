@@ -1,0 +1,58 @@
+# Fateweave API, run alongside existing services on the shared VM.
+#   docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d --build
+# Isolation rules: no Postgres service here (uses the EXISTING instance with the dedicated
+# fateweave_app role), no shared networks, host port bound to 127.0.0.1 only.
+name: fateweave
+
+services:
+  fateweave-api:
+    container_name: fateweave-api
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: fateweave-api:local
+    # Secrets (FATEWEAVE_DATABASE_URL, FATEWEAVE_MCP_KEY, FATEWEAVE_PUBLIC_HOST) live in a
+    # root-owned file outside the repo, mode 600. Never commit it (see README, Deployment).
+    env_file:
+      - ${FATEWEAVE_ENV_FILE:-/etc/fateweave/fateweave.env}
+    environment:
+      # Inside the container the app listens on all interfaces; host exposure is the port mapping.
+      FATEWEAVE_BIND_HOST: 0.0.0.0
+      FATEWEAVE_PORT: "8080"
+      FATEWEAVE_PROXY_HEADERS: "true"
+      # Host Nginx reaches the container through the published loopback port, so uvicorn sees the
+      # docker bridge gateway as the peer. Trust forwarded headers from that range only
+      # (narrow it to your bridge subnet if known).
+      FATEWEAVE_FORWARDED_ALLOW_IPS: 172.16.0.0/12
+    ports:
+      - "127.0.0.1:8080:8080"
+    # If the existing PostgreSQL runs on the host, FATEWEAVE_DATABASE_URL must use
+    # host.docker.internal as the host, e.g.
+    #   postgresql+asyncpg://fateweave_app:PW@host.docker.internal:5432/fateweave
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
