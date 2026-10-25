@@ -126,9 +126,10 @@ scripts/acceptance.md         # Claude 일반 채팅 실제 점검
 **Interfaces:**
 - `compute_chart(birth: NormalizedBirth) -> ChartSnapshot`: `year/month/day/hour_pillar`, `ten_gods`, `daewoon`, `sewoon`, `policy_version`, `library_version`, `assumptions`, `warnings`, `alternatives`, `certainty: CONFIRMED|PARTIAL`.
 - 출생시간 미상인 경우 **명식 계산의 내부 기준시각으로만** 정오를 사용할 수 있으나 `birth_time` 또는 `hour_pillar`에 정오를 채우는 일은 금지. 같은 날짜의 절기·일주 경계 후보를 검토하고 불확실하면 `PARTIAL` 및 대안 명식을 돌려준다.
+- **manse-v1 시각 보정 원칙(R1 확정):** KST 표준 자오선 135°, 출생지 경도 보정 `(경도−135)×4분` 적용, 균시차 미적용(지방평균태양시), `yaja_si_separated=True`. 출생시간 미상이면 `hour_pillar=null`이며 임의 시각을 확정 결과로 저장하지 않는다.
 - `korean-saju==0.3.0` + `yaja_si_separated=True` + 기본 미지정 경도 `126.9784`(서울 가정임을 warnings에 기록). 월주 절기 기준/입춘 기준, UTC/KST 변환 규약 버전 고정. 범위 밖 절기 fallback은 출생 시각이 절입 ±24h에 걸리면 `PARTIAL`/`BOUNDARY_REVIEW_REQUIRED`로 처리.
 
-- [ ] **Step 1: Write failing tests** `test_known_1990_case` (1990-01-01 09:00 서울 ⇒ 己巳/丙子/丙寅/癸巳, 독립 참조 및 출처를 fixture에 기록), `test_yaja_toggle_boundary` (1994-04-28 23:40 서울에서 default 갑신일; 대조 관법 을유일), `test_unknown_hour_no_hour_pillar`, `test_unknown_hour_on_solar_term_boundary_partial`, `test_nonbundled_solar_term_warns`, `test_facts_hash_stable`.
+- [ ] **Step 1: Write failing tests** `test_known_1990_case` (1990-01-01 09:00 서울 ⇒ 己巳/丙子/丙寅/壬辰 — manse-v1 경도 보정 적용; 2026-10-25 R1 검증에서 기존 癸巳는 미보정 값이자 korean-saju README 예제와 동일한 오기로 확인되어 정정. 09:35 서울 ⇒ 癸巳. 독립 참조 및 출처를 fixture에 기록), `test_yaja_toggle_boundary` (1994-04-28 23:40 서울에서 default 갑신일; 대조 관법 을유일), `test_unknown_hour_no_hour_pillar`, `test_unknown_hour_on_solar_term_boundary_partial`, `test_nonbundled_solar_term_warns`, `test_facts_hash_stable`.
 - [ ] **Step 2: Verify RED:** `uv run pytest tests/unit/test_manse.py -v` → fail.
 - [ ] **Step 3: Implement** pure adapter calling `Saju.from_birth(...)`/`SajuAnalysis`; keep computed `ChartSnapshot` explicit. If oracle fixture does not match package, **do not massage expected values**; stop acceptance for this task and document/root-cause library or policy mismatch. Never silently use 12:00 as actual birth time.
 - [ ] **Step 4: Verify GREEN:** `uv run pytest tests/unit/test_manse.py -v` → pass, with reviewed independent fixtures; if blocked, mark Task blocked rather than committing unverified engine.

@@ -6,9 +6,14 @@
     "year_pillar": "立春 instant (absolute time)",
     "month_pillar": "節 instants (absolute time); KASI table 2000-2027, Meeus computation outside",
     "day_and_hour_pillar": "local mean solar time: KST + (longitude - 135) * 4 min; no equation of time",
+    "kst_standard_meridian": 135.0,
+    "longitude_correction": "applied: (birth longitude - 135) * 4 min; Seoul 126.9784E = -32.0864 min",
+    "equation_of_time": "not applied",
     "default_longitude": 126.9784,
-    "yaja_si_separated": true
+    "yaja_si_separated": true,
+    "unknown_birth_time": "hour_pillar = null, never a guessed hour; the whole birth date is scanned and any differing year/month/day pillar set is returned as an alternative with certainty PARTIAL + BOUNDARY_REVIEW_REQUIRED"
   },
+  "library_readme_discrepancy": "korean-saju 0.3.0 README (dist-info METADATA, 'Saju.from_birth' example) prints 己巳 丙子 丙寅 癸巳 for 1990-01-01 09:00 KST at longitude 126.9784. The 0.3.0 source does not produce that: solar_time/solar_time_correction.py applies (longitude - KOREAN_STANDARD_MERIDIAN 135.0) * 4.0 min, so 09:00 KST becomes 08:27:55 and saju.from_birth returns hour 壬辰 (verified 2026-10-25 against the installed package). The README example is the no-correction value. Fateweave follows the code and an independent calculation (test_manse.independent_hour_pillar), not the README text.",
   "independent_references": {
     "day_anchor": "Wikipedia, 'Sexagenary cycle', section 'Sexagenary days': 1949-10-01 (Gregorian) is 甲子 (also 1912-02-18 甲子; the two anchors differ by a multiple of 60 days). Day index = (proleptic Gregorian ordinal - ordinal(1949-10-01)) mod 60, computed in the test with datetime.date.toordinal (JDN = ordinal + 1721425).",
     "solar_term_times": "bebeyam.com '사주 만세력 YYYY년 24절기 절입시간' tables (KST, Seoul reference point), fetched 2026-10-25: https://bebeyam.com/사주-만세력-1989년-기사년-24절기-절입시간-입춘/ , https://bebeyam.com/사주-만세력-1990년-경오년-24절기-절입시간-입춘/ , https://bebeyam.com/사주-만세력-1994년-갑술년-24절기-절입시간-입춘/ . A private almanac site (not KASI); its times are KST.",
@@ -27,7 +32,18 @@
         "day": "1990-01-01: (ordinal - ordinal(1949-10-01)) mod 60 = 2 = 丙寅 (JDN 2447893).",
         "hour": "09:00 KST at 126.9784E = 08:27:55 local mean time, 辰時 (07-09). 五鼠遁 for a 丙 day starts 子 at 戊子, so 辰 = 壬辰."
       },
-      "notes": "The plan's 癸巳 is the NO-correction value (09:00 read as 巳時 09-11). Under manse-v1's longitude correction the hour is 壬辰; this is a documented convention difference, not a massaged value. Library computed-term deviation vs bebeyam: 小寒 23:30:41 vs 23:33, 立春 11:10:44 vs 11:14, 大雪 12:18:34 vs 12:21 KST (about 3-4 min early)."
+      "notes": "The plan's original 癸巳 (and the korean-saju README example) is the NO-correction value (09:00 read as 巳時 09-11). Under manse-v1's longitude correction the hour is 壬辰; confirmed as intended behaviour by the user in R1 review (2026-10-25) and the plan was corrected. Library computed-term deviation vs bebeyam: 小寒 23:30:41 vs 23:33, 立春 11:10:44 vs 11:14, 大雪 12:18:34 vs 12:21 KST (about 3-4 min early)."
+    },
+    {
+      "id": "known_1990_0935",
+      "input": {"birth_date": "1990-01-01", "calendar": "solar", "birth_time": "09:35", "gender_for_daewoon": "male", "longitude": 126.9784},
+      "expected": {"year_pillar": "己巳", "month_pillar": "丙子", "day_pillar": "丙寅", "hour_pillar": "癸巳", "certainty": "CONFIRMED"},
+      "policy": "manse-v1 (Seoul longitude, local mean solar time correction)",
+      "source": {
+        "year_month_day": "same as known_1990 (independent references above).",
+        "hour": "09:35 KST at 126.9784E = 09:02:55 local mean time, 巳時 (09-11). 五鼠遁 for a 丙 day starts 子 at 戊子, so 巳 = 癸巳."
+      },
+      "notes": "Shows where 癸巳 starts under manse-v1: the 辰/巳 boundary for Seoul is 09:32:05 KST (09:00 local mean time). 09:32 KST -> 08:59:55 -> 壬辰; 09:33 KST -> 09:00:55 -> 癸巳."
     },
     {
       "id": "yaja_1994",

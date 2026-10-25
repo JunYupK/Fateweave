@@ -7,9 +7,12 @@ manse-v1 conventions (fixed; change them only with a new policy version):
   CIVIL_TIME_OFFSET_UNVERIFIED and shifted alternatives.
 - Year pillar: 立春 instant. Month pillar: 節 instants. Both on absolute time; solar terms come
   from the bundled KASI table (2000-2027) or the library's Meeus computation outside it.
-- Day and hour pillars: local mean solar time, KST + (longitude - 135) * 4 min (no equation
-  of time). Default longitude 126.9784 (Seoul), recorded as LONGITUDE_ASSUMED_SEOUL.
-- Yaja-si separated (library default): AST 23:00-24:00 keeps the calendar day.
+- Day and hour pillars: local mean solar time. KST standard meridian 135E; birth-longitude
+  correction KST + (longitude - 135) * 4 min (Seoul 126.9784E = -32.09 min); equation of time
+  NOT applied. Default longitude 126.9784 (Seoul), recorded as LONGITUDE_ASSUMED_SEOUL.
+  Example: 1990-01-01 09:00 KST Seoul = 08:27:55 -> 壬辰; the 辰/巳 boundary is 09:32:05 KST.
+  (The korean-saju README's 癸巳 for that input is the uncorrected value; its code corrects.)
+- Yaja-si separated (yaja_si_separated=True): AST 23:00-24:00 keeps the calendar day.
 - Unknown birth time: noon is only the internal reference instant (year/month/day pillars and
   daewoon start); hour_pillar stays None and birth_time is never filled. Every minute of the
   birth date is evaluated and any differing pillar set is returned as an alternative.
@@ -52,6 +55,9 @@ from fateweave.models.facts import (
 )
 from fateweave.models.inputs import NormalizedBirth
 
+KST_STANDARD_MERIDIAN = 135.0  # must equal SolarTimeCorrection.KOREAN_STANDARD_MERIDIAN
+APPLY_EQUATION_OF_TIME = False  # manse-v1 uses local mean solar time only
+YAJA_SI_SEPARATED = True
 DEFAULT_LONGITUDE = 126.9784
 # South Korea's longitude extremes (Baengnyeongdo ~124.6E, Dokdo ~131.9E).
 KOREA_LONGITUDE_RANGE = (124.6, 131.9)
@@ -172,7 +178,7 @@ def _nearby_jeols(start_utc: datetime, end_utc: datetime, *, unknown_time: bool)
 def compute_chart(
     birth: NormalizedBirth,
     *,
-    yaja_si_separated: bool = True,
+    yaja_si_separated: bool = YAJA_SI_SEPARATED,
     sewoon_start_year: int | None = None,
     sewoon_years: int = 10,
 ) -> ChartSnapshot:

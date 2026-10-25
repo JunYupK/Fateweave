@@ -26,6 +26,19 @@ def independent_day_pillar(d: date) -> str:
     return STEMS[i % 10] + BRANCHES[i % 12]
 
 
+def independent_hour_pillar(d: date, kst: time, longitude: float) -> str:
+    """Oracle independent of korean-saju for non-子 hours.
+
+    Local mean time = KST + (longitude - 135) * 4 min (manse-v1, no equation of time);
+    two-hour branches start at 子 23:00; 五鼠遁 gives the 子 stem from the day stem.
+    """
+    minutes = kst.hour * 60 + kst.minute + (longitude - 135.0) * 4.0
+    assert 60 <= minutes < 23 * 60, "oracle covers 丑..亥 hours on the same day only"
+    branch = int((minutes + 60) // 120) % 12
+    day_stem = STEMS.index(independent_day_pillar(d)[0])
+    return STEMS[((day_stem % 5) * 2 + branch) % 10] + BRANCHES[branch]
+
+
 def birth(**kw):
     base = {"birth_date": "1990-01-01", "calendar": "solar", "gender_for_daewoon": "male"}
     base.update(kw)
@@ -76,6 +89,51 @@ def test_known_1990_case():
     assert snap.daewoon.entries[0].pillar == "乙亥"  # 丙子 stepped backwards
 
 
+@pytest.mark.parametrize("case_id", ["known_1990", "known_1990_0935"])
+def test_hour_pillar_matches_fixture_and_independent_oracle(case_id):
+    case = CASES[case_id]
+    snap = compute_chart(from_case(case_id))
+    exp = case["expected"]
+    assert pillars(snap) == (
+        exp["year_pillar"],
+        exp["month_pillar"],
+        exp["day_pillar"],
+        exp["hour_pillar"],
+    )
+    kst = time.fromisoformat(case["input"]["birth_time"])
+    assert snap.hour_pillar == independent_hour_pillar(date(1990, 1, 1), kst, 126.9784)
+    assert snap.certainty == "CONFIRMED"
+
+
+@pytest.mark.parametrize(
+    ("kst", "expected"),
+    [
+        (time(9, 0), "壬辰"),
+        (time(9, 32), "壬辰"),  # 08:59:55 local mean time
+        (time(9, 33), "癸巳"),  # 09:00:55 local mean time
+        (time(9, 35), "癸巳"),
+    ],
+)
+def test_seoul_chen_si_boundary(kst, expected):
+    snap = compute_chart(birth(birth_time=kst, longitude=126.9784))
+    assert snap.hour_pillar == expected
+    assert independent_hour_pillar(date(1990, 1, 1), kst, 126.9784) == expected
+
+
+def test_manse_v1_time_policy_is_explicit():
+    from korean_saju import SolarTimeCorrection
+
+    from fateweave.domain import manse
+
+    policy = FIXTURE["policy"]
+    assert manse.KST_STANDARD_MERIDIAN == 135.0 == policy["kst_standard_meridian"]
+    assert SolarTimeCorrection.KOREAN_STANDARD_MERIDIAN == manse.KST_STANDARD_MERIDIAN
+    assert manse.APPLY_EQUATION_OF_TIME is False
+    assert policy["equation_of_time"] == "not applied"
+    assert manse.YAJA_SI_SEPARATED is True and policy["yaja_si_separated"] is True
+    assert manse.DEFAULT_LONGITUDE == policy["default_longitude"] == 126.9784
+
+
 def test_known_1990_no_correction_value_is_documented():
     # Without the longitude correction (meridian 135E) the hour is the plan's 癸巳.
     snap = compute_chart(from_case("known_1990", longitude=135.0))
@@ -122,6 +180,8 @@ def test_unknown_hour_no_hour_pillar():
     assert snap.hour_pillar is None
     assert snap.birth_time is None
     assert b.birth_time is None
+    dumped = snap.model_dump(mode="json")
+    assert dumped["hour_pillar"] is None and dumped["birth_time"] is None
     assert not any(k.startswith("hour") for k in snap.ten_gods)
     assert (snap.year_pillar, snap.month_pillar, snap.day_pillar) == ("己巳", "丙子", "丙寅")
     assert any("noon" in a for a in snap.assumptions)
