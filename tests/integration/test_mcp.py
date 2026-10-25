@@ -78,6 +78,7 @@ async def test_tools_list_exposes_exact_five_tools():
         "VALIDATION_FAILED",
         "idempotency_key",
         "interpretation",
+        "at least one structured computed claim citing server evidence",
     ):
         assert needle in instructions
     for section in {*REQUIRED_SECTIONS["individual"], *REQUIRED_SECTIONS["couple"]}:

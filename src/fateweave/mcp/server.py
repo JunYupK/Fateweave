@@ -56,6 +56,9 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
    - couple 필수 sections: {_sections("couple")}
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
 `computed_values`에 해당 evidence `operands`의 값을 정확히 그대로 적는다.
+   - draft에는 `evidence_catalog`의 evidence ID를 인용하는 kind `computed` claim이 최소 1개 \
+반드시 있어야 한다 (at least one structured computed claim citing server evidence). 없으면 \
+`VALIDATION_FAILED`가 된다.
    - 해석적 판단은 kind `interpretation` claim으로 분리하고 evidence ID를 인용한다.
    - 결혼 확률·퍼센트(probability)나 O/X 판정을 절대 쓰지 않는다. 출생 시각 미상이나 \
 경계(boundary) 불확실성은 limitations와 caveats에 밝힌다.

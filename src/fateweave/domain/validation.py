@@ -36,6 +36,12 @@ MAX_SECTION_CHARS = 40_000
 PROBABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"결혼 확률\s*\d+(?:\.\d+)?%"),
     re.compile(r"결혼 가능성\s*\d+(?:\.\d+)?%"),
+    # 확률/가능성 within 15 chars (same line) before or after a percentage: "성사 확률 70%",
+    # "결혼할 확률은 80%", "80%의 확률로". A bare percentage ("목(木)이 40%") is not matched.
+    re.compile(
+        r"(?:확률|가능성)[^\n]{0,15}?\d+(?:\.\d+)?\s*%"
+        r"|\d+(?:\.\d+)?\s*%[^\n]{0,15}?(?:확률|가능성)"
+    ),
 )
 
 _MISSING = object()
@@ -157,6 +163,10 @@ def _check_interpretation(
     return errors
 
 
+def _cites_server_evidence(claim: Claim, catalog: dict[str, Evidence]) -> bool:
+    return claim.kind == "computed" and any(eid in catalog for eid in claim.evidence_ids)
+
+
 def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResult:
     """Collect all validation errors in a deterministic order (size check short-circuits)."""
     total = sum(len(v) for v in draft.sections.values())
@@ -198,6 +208,16 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
             errors.extend(_check_computed(i, claim, catalog))
         else:
             errors.extend(_check_interpretation(i, claim, catalog))
+
+    if not any(_cites_server_evidence(c, catalog) for c in draft.claims):
+        errors.append(
+            _err(
+                "UNSUPPORTED_CLAIM",
+                "at least one structured computed claim citing server evidence "
+                "(an evidence_catalog id) is required",
+                "claims",
+            )
+        )
 
     texts = [(f"sections.{k}", v) for k, v in draft.sections.items()]
     texts += [(f"claims.{i}.statement", c.statement) for i, c in enumerate(draft.claims)]

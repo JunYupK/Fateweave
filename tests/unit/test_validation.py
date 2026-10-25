@@ -1,4 +1,5 @@
 from datetime import time
+from functools import lru_cache
 from uuid import uuid4
 
 import pytest
@@ -12,8 +13,8 @@ from fateweave.models.inputs import BirthProfileInput
 from fateweave.models.reports import Claim, ReportDraft
 
 
-@pytest.fixture(scope="module")
-def run() -> PreparedAnalysis:
+@lru_cache
+def _prepared() -> PreparedAnalysis:
     birth = normalize_birth(
         BirthProfileInput(
             birth_date="1990-01-01",
@@ -36,6 +37,11 @@ def run() -> PreparedAnalysis:
     )
 
 
+@pytest.fixture(scope="module")
+def run() -> PreparedAnalysis:
+    return _prepared()
+
+
 def ev(run: PreparedAnalysis, rule: str, **match) -> Evidence:
     for e in run.evidence_catalog:
         if e.rule_code == rule and all(e.operands.get(k) == v for k, v in match.items()):
@@ -47,11 +53,19 @@ def sections(report_type: str = "individual") -> dict[str, str]:
     return {name: f"{name} text" for name in REQUIRED_SECTIONS[report_type]}
 
 
-def draft(claims=(), caveats=(), secs=None, report_type="individual") -> ReportDraft:
+def anchor() -> Claim:
+    """A valid computed claim: every draft needs one (appended last, so indices are unchanged)."""
+    e = ev(_prepared(), "SEWOON", year=2026)
+    return computed("SEWOON", [e.id], {"year": 2026, "pillar": e.operands["pillar"]})
+
+
+def draft(
+    claims=(), caveats=(), secs=None, report_type="individual", with_anchor=True
+) -> ReportDraft:
     return ReportDraft(
         report_type=report_type,
         sections=secs if secs is not None else sections(report_type),
-        claims=list(claims),
+        claims=[*claims, anchor()] if with_anchor else list(claims),
         caveats=list(caveats),
         generated_by="claude",
         prompt_version="p1",
@@ -243,3 +257,34 @@ def test_schema_is_strict():
             generated_by="c",
             prompt_version="p",
         )
+
+
+def test_rejects_draft_without_computed_claim(run):
+    cue = ev(run, "YONGSIN")
+    interp = Claim(
+        kind="interpretation", rule_code="YONGSIN", evidence_ids=[cue.id], statement="reading"
+    )
+    for claims in ([], [interp]):
+        result = validate_report(draft(claims, with_anchor=False), run)
+        assert codes(result) == ["UNSUPPORTED_CLAIM"] and not result.valid
+        assert result.errors[0].path == "claims"
+        assert "at least one structured computed claim" in result.errors[0].message
+    # a computed claim citing only unknown evidence does not count as citing server evidence
+    ghost = computed("SEWOON", ["E-self-SEWOON-deadbeef"], {"year": 2027})
+    result = validate_report(draft([ghost], with_anchor=False), run)
+    assert codes(result) == ["UNKNOWN_EVIDENCE", "UNSUPPORTED_CLAIM"]
+    assert result.errors[-1].path == "claims"
+    assert validate_report(draft([interp]), run).valid  # with the anchor it passes
+
+
+@pytest.mark.parametrize("phrase", ["결혼할 확률은 80%", "성사 확률 70%", "80%의 확률로"])
+def test_rejects_probability_phrases_near_percentages(run, phrase):
+    secs = sections() | {"summary": f"요약: {phrase} 이어진다"}
+    result = validate_report(draft(secs=secs), run)
+    assert codes(result) == ["UNSUPPORTED_CLAIM"]
+    assert result.errors[0].path == "sections.summary"
+
+
+def test_plain_percentage_is_not_a_probability(run):
+    secs = sections() | {"summary": "오행 중 목(木)이 40% 정도로 강하다"}
+    assert validate_report(draft(secs=secs), run).valid
