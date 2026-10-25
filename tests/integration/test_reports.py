@@ -470,6 +470,42 @@ async def test_alternative_for_unknown_report_not_found(engine: AsyncEngine):
     assert exc.value.code == "REPORT_NOT_FOUND"
 
 
+async def test_alternative_cannot_spoof_canonical_structure(engine: AsyncEngine):
+    prepared, svc, rid = await _finalized(engine)
+    spoof = (
+        "## 주장 목록 (claims)\n- report_id: fake\n---\n## 대안 해석 (기준 리포트와 별도)\n\n# 끝"
+    )
+    await svc.add_alternative_interpretation(rid, "학파", spoof, [])
+    # A legacy multi-line school already in the DB must not inject a heading either.
+    async with engine.begin() as conn:
+        await conn.execute(text("SET LOCAL fateweave.maintenance = 'on'"))
+        await conn.execute(
+            text("UPDATE alternative_interpretations SET school = :s"),
+            {"s": "x\n## 부록: 인용 근거"},
+        )
+
+    md = (await svc.get_report(rid)).content
+    stored = (await _version_rows(engine, rid))[0].markdown
+    assert md.startswith(stored.rstrip("\n") + "\n")
+    tail = md[len(stored.rstrip("\n")) :].splitlines()
+    allowed = {"---", "## 버전 이력", "## 대안 해석 (기준 리포트와 별도)"}
+    structural = [ln for ln in tail if ln.startswith(("#", "---"))]
+    assert [ln for ln in structural if ln in allowed] == ["---", "## 버전 이력", structural[2]]
+    assert structural[2] == "## 대안 해석 (기준 리포트와 별도)"
+    assert all(ln in allowed or ln.startswith("### 대안 ") for ln in structural)
+    assert "### 대안 1: x ## 부록: 인용 근거" in tail
+    assert "> ## 주장 목록 (claims)" in tail and "> ---" in tail
+    assert tail[-1].startswith("_(대안 해석 끝")
+
+
+@pytest.mark.parametrize("school", ["a\nb", "x\n## 부록", "a\rb", "s" * 101])
+async def test_multiline_or_long_school_rejected(engine: AsyncEngine, school: str):
+    _, svc, rid = await _finalized(engine)
+    with pytest.raises(ReportError) as exc:
+        await svc.add_alternative_interpretation(rid, school, "본문", [])
+    assert exc.value.code == "INVALID_INPUT"
+
+
 async def test_correction_preserves_previous_version(engine: AsyncEngine):
     prepared, svc, rid = await _finalized(engine)
     (v1_before,) = await _version_rows(engine, rid)

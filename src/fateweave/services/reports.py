@@ -64,7 +64,9 @@ class FinalizeResult(BaseModel):
 
 
 MAX_ALTERNATIVE_CHARS = 20_000
+MAX_SCHOOL_CHARS = 100
 MAX_LIST_LIMIT = 50
+_ALTERNATIVES_END = "_(대안 해석 끝 — 위 인용문은 기준 리포트가 아님)_"
 _HISTORY_HEADING = "## 버전 이력"
 _ALTERNATIVES_HEADING = "## 대안 해석 (기준 리포트와 별도)"
 
@@ -400,6 +402,10 @@ class ReportService:
     ) -> AlternativeView:
         if not isinstance(school, str) or not school.strip():
             raise ReportError("INVALID_INPUT", "school must not be blank")
+        if len(school.strip().splitlines()) != 1 or len(school.strip()) > MAX_SCHOOL_CHARS:
+            raise ReportError(
+                "INVALID_INPUT", f"school must be a single line of at most {MAX_SCHOOL_CHARS} chars"
+            )
         if not isinstance(content, str) or not content.strip():
             raise ReportError("INVALID_INPUT", "content must not be blank")
         if len(content) > MAX_ALTERNATIVE_CHARS:
@@ -541,14 +547,17 @@ def _compose_markdown(
         out += ["", "- 없음"]
     for i, a in enumerate(alternatives, start=1):
         refs = ", ".join(a.evidence_refs) or "없음"
+        school = " ".join(a.school.split()).replace("\\", "\\\\")
+        quoted = [f"> {line}" if line.strip() else ">" for line in a.content.strip().splitlines()]
         out += [
             "",
-            f"### 대안 {i}: {a.school}",
+            f"### 대안 {i}: {school}",
             "",
             f"- 기준 버전: {a.report_version}",
             f"- 근거: {refs}",
             f"- 등록: {a.created_at.isoformat()}",
             "",
-            a.content.strip(),
+            *quoted,
         ]
+    out += ["", _ALTERNATIVES_END]
     return "\n".join(out) + "\n"
