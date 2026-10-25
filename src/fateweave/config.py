@@ -6,7 +6,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="FATEWEAVE_", env_file=".env", extra="ignore")
+    # env_ignore_empty: a blank optional var (e.g. `FATEWEAVE_PORT=`) falls back to its default.
+    model_config = SettingsConfigDict(
+        env_prefix="FATEWEAVE_", env_file=".env", extra="ignore", env_ignore_empty=True
+    )
 
     MANSE_POLICY_VERSION: ClassVar[str] = "manse-v1"
     RULE_VERSION: ClassVar[str] = "rules-v1"

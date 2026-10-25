@@ -44,3 +44,21 @@ def test_get_settings_is_cached(monkeypatch):
         assert get_settings() is get_settings()
     finally:
         get_settings.cache_clear()
+
+
+def test_blank_optional_vars_fall_back_to_defaults(monkeypatch):
+    monkeypatch.setenv("FATEWEAVE_DATABASE_URL", "postgresql+asyncpg://u@h/db")
+    monkeypatch.setenv("FATEWEAVE_MCP_KEY", SECRET)
+    monkeypatch.setenv("FATEWEAVE_PUBLIC_HOST", "example.test")
+    for name in (
+        "FATEWEAVE_PORT",
+        "FATEWEAVE_PROXY_HEADERS",
+        "FATEWEAVE_BIND_HOST",
+        "FATEWEAVE_FORWARDED_ALLOW_IPS",
+    ):
+        monkeypatch.setenv(name, "")
+    s = Settings(_env_file=None)
+    assert s.port == 8080
+    assert s.proxy_headers is True
+    assert s.bind_host == "127.0.0.1"
+    assert s.forwarded_allow_ips == "127.0.0.1"
