@@ -14,6 +14,8 @@ operands (only the "A"/"B" labels in text_ko swap). Rules, in fixed order:
 - COUPLE_YEAR_WINDOW: years in [start_year, start_year + years) where one mechanical condition
   holds for both people (see YEAR_CONDITIONS). It lists traditional timing cues only; it never
   picks a marriage year and never scores or predicts.
+- COUPLE_LUCK_OVERLAP: a record only (no condition, no selection) — for every window year, the
+  year pillar and each person's daewoon pillar(s) active during it (see _daewoon_timeline).
 
 Unknown hour on either side: no pair evidence references an hour pillar. PARTIAL charts: pair
 items that depend on a pillar differing among that person's alternatives carry
@@ -31,6 +33,8 @@ from fateweave.domain.rules import (
     _PAIR_RELATIONS,
     _POS_KO,
     BOUNDARY_ASSUMPTION,
+    DAEWOON_PRIMARY_ONLY,
+    DAEWOON_START_APPROXIMATE,
     POSITIONS,
     _differing_positions,
     _Draft,
@@ -47,6 +51,7 @@ COUPLE_RULE_ORDER: tuple[str, ...] = (
     "COUPLE_DAY_BRANCH",
     "COUPLE_CROSS_PILLARS",
     "COUPLE_YEAR_WINDOW",
+    "COUPLE_LUCK_OVERLAP",
 )
 PAIR_SUBJECT_KEY = "AB"
 MAX_WINDOW_YEARS = 30
@@ -228,6 +233,84 @@ def _year_window_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> 
     return drafts
 
 
+TRANSITION_ASSUMPTION = "daewoon transition year; boundary depends on start age convention"
+DAEWOON_UNAVAILABLE = "unavailable"
+_START_TOLERANCE_MONTHS = 1  # day-of-month and the library's month rounding
+_APPROXIMATE_EXTRA_MONTHS = 2  # DAEWOON_START_APPROXIMATE: up to about +-2 months
+
+
+def _daewoon_timeline(chart: ChartSnapshot, year: int) -> list[str]:
+    """Daewoon pillars possibly active during `year`, chronologically.
+
+    Ages count from the birth month (start_age years after birth, as korean-saju derives them).
+    Entry i starts between `start_age_i*12` months and `start_age_i*12 + start_months_offset`
+    months after the birth month (the library applies the offset to the first entry only; the
+    later entries are ambiguous between the two conventions), widened by a tolerance. A year
+    touched by an uncertain start lists both pillars. Parts of the year before the first entry
+    or after the last entry's ten years are DAEWOON_UNAVAILABLE.
+    """
+    dw = chart.daewoon
+    birth_year, birth_month = int(chart.solar_date[:4]), int(chart.solar_date[5:7])
+    base = birth_year * 12 + birth_month - 1
+    tol = _START_TOLERANCE_MONTHS
+    if "DAEWOON_START_APPROXIMATE" in chart.warning_codes:
+        tol += _APPROXIMATE_EXTRA_MONTHS
+    starts = [e.start_age for e in dw.entries]
+    if starts:
+        starts.append(starts[-1] + 10)  # end of the last entry
+    windows = [
+        (
+            base + age * 12 + (dw.start_months_offset if i == 0 else 0) - tol,
+            base + age * 12 + dw.start_months_offset + tol,
+        )
+        for i, age in enumerate(starts)
+    ]
+    first, last = year * 12, year * 12 + 11
+    if not windows:
+        return [DAEWOON_UNAVAILABLE]
+    timeline = [DAEWOON_UNAVAILABLE] if first <= windows[0][1] else []
+    for i, entry in enumerate(dw.entries):
+        if windows[i][0] <= last and windows[i + 1][1] >= first:
+            timeline.append(entry.pillar)
+    if last >= windows[-1][0]:
+        timeline.append(DAEWOON_UNAVAILABLE)
+    return timeline
+
+
+def _timeline_ko(timeline: list[str]) -> str:
+    names = ["자료 없음" if p == DAEWOON_UNAVAILABLE else p for p in timeline]
+    return " → ".join(names) + (" (전환 연도)" if len(names) > 1 else "")
+
+
+def _luck_overlap_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> Drafts:
+    (la, ca), (lb, cb) = a, b
+    common: list[str] = []
+    if "PARTIAL" in (ca.certainty, cb.certainty):
+        common.append(DAEWOON_PRIMARY_ONLY)
+    if "DAEWOON_START_APPROXIMATE" in ca.warning_codes + cb.warning_codes:
+        common.append(DAEWOON_START_APPROXIMATE)
+    drafts: Drafts = []
+    for year in range(start_year, start_year + years):
+        pillar = _year_pillar(year, (ca, cb))
+        ta, tb = _daewoon_timeline(ca, year), _daewoon_timeline(cb, year)
+        transition = (TRANSITION_ASSUMPTION,) if len(ta) > 1 or len(tb) > 1 else ()
+        draft = _Draft(
+            kind="computed",
+            operands={
+                "year": year,
+                "year_pillar": pillar,
+                "entries": _entries({"daewoon": ta}, {"daewoon": tb}),
+            },
+            text_ko=f"{year}년 {pillar}: {la} 대운 {_timeline_ko(ta)}, "
+            f"{lb} 대운 {_timeline_ko(tb)}",
+            source_ref=f"{_rules_ref('COUPLE_LUCK_OVERLAP')} (snapshot daewoon start ages; "
+            f"year pillar by 60-cycle, {_SEXAGENARY_BASE_YEAR}=甲子)",
+            assumptions=(*transition, *common),
+        )
+        drafts.append((draft, {la: frozenset({"year", "month"}), lb: frozenset({"year", "month"})}))
+    return drafts
+
+
 def build_couple_evidence(
     a: ChartSnapshot, b: ChartSnapshot, start_year: int, years: int = 10
 ) -> list[Evidence]:
@@ -240,6 +323,7 @@ def build_couple_evidence(
         "COUPLE_DAY_BRANCH": _day_branch_rule(la, lb),
         "COUPLE_CROSS_PILLARS": _cross_pillars_rule(la, lb),
         "COUPLE_YEAR_WINDOW": _year_window_rule(la, lb, start_year, years),
+        "COUPLE_LUCK_OVERLAP": _luck_overlap_rule(la, lb, start_year, years),
     }
     assert tuple(rules) == COUPLE_RULE_ORDER
 

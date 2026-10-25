@@ -7,7 +7,12 @@ import pytest
 from fateweave.domain.calendar import normalize_birth
 from fateweave.domain.couple import COUPLE_RULE_ORDER, build_couple_evidence
 from fateweave.domain.manse import compute_chart
-from fateweave.domain.rules import BOUNDARY_ASSUMPTION, build_individual_evidence
+from fateweave.domain.rules import (
+    BOUNDARY_ASSUMPTION,
+    DAEWOON_PRIMARY_ONLY,
+    DAEWOON_START_APPROXIMATE,
+    build_individual_evidence,
+)
 from fateweave.models.facts import ChartSnapshot, Evidence
 from fateweave.models.inputs import BirthProfileInput
 
@@ -213,6 +218,64 @@ def test_unknown_hour_no_hour_pair_claims(chou):
         BOUNDARY_ASSUMPTION in e.assumptions
         for e in pair_items(build_couple_evidence(other, chou, 2026))
     )
+
+
+TRANSITION = "daewoon transition year; boundary depends on start age convention"
+
+
+def daewoon_by_year(evidence: list[Evidence]) -> dict[int, Evidence]:
+    return {e.operands["year"]: e for e in by_rule(evidence, "COUPLE_LUCK_OVERLAP")}
+
+
+def test_luck_overlap_symmetric_record(zi, chou):
+    # zi: forward daewoon from 7y12m (庚辰, 辛巳 from 17, ...); chou: backward from 2y5m.
+    assert (zi.daewoon.start_age, zi.daewoon.start_months_offset) == (7, 12)
+    assert (chou.daewoon.start_age, chou.daewoon.start_months_offset) == (2, 5)
+    ab = build_couple_evidence(zi, chou, 2026)
+    ba = build_couple_evidence(chou, zi, 2026)
+    luck_ab, luck_ba = by_rule(ab, "COUPLE_LUCK_OVERLAP"), by_rule(ba, "COUPLE_LUCK_OVERLAP")
+    assert [(e.id, e.operands) for e in luck_ab] == [(e.id, e.operands) for e in luck_ba]
+    # One record per window year, with no selection condition.
+    assert sorted(daewoon_by_year(ab)) == list(range(2026, 2036))
+    e = daewoon_by_year(ab)[2027]
+    assert e.kind == "computed" and ID_RE.match(e.id)["subject"] == "AB"
+    assert e.operands["year_pillar"] == "丁未"
+    # zi is 37 in 2027 (壬午 27-36 → 癸未 from 37 or 38): both listed; chou 乙亥 (32-41).
+    assert sorted(map(tuple, (d["daewoon"] for d in e.operands["entries"]))) == [
+        ("乙亥",),
+        ("壬午", "癸未"),
+    ]
+    assert e.text_ko == "2027년 丁未: A 대운 壬午 → 癸未 (전환 연도), B 대운 乙亥"
+    assert TRANSITION in e.assumptions
+    assert not any("condition" in x.operands for x in luck_ab)
+
+
+def test_luck_overlap_transition_and_window(zi, chou):
+    evidence = build_couple_evidence(zi, chou, 2007, years=3)
+    records = daewoon_by_year(evidence)
+    assert sorted(records) == [2007, 2008, 2009]  # nothing outside the window
+    a_lines = {y: next(d["daewoon"] for d in r.operands["entries"] if "辛巳" in d["daewoon"])
+               for y, r in records.items()}
+    # 辛巳 starts at 17 (2007) or 17y12m (2008), depending on the start-offset convention.
+    assert a_lines == {2007: ["庚辰", "辛巳"], 2008: ["庚辰", "辛巳"], 2009: ["辛巳"]}
+    assert TRANSITION in records[2007].assumptions and TRANSITION in records[2008].assumptions
+    assert TRANSITION not in records[2009].assumptions  # chou: 丁丑 all of 2009
+
+    # Before the first daewoon starts, the person's daewoon is recorded as unavailable.
+    early = daewoon_by_year(build_couple_evidence(zi, chou, 1990, years=1))[1990]
+    assert [d["daewoon"] for d in early.operands["entries"]] == [["unavailable"]] * 2
+    assert early.text_ko == "1990년 庚午: A 대운 자료 없음, B 대운 자료 없음"
+
+
+def test_luck_overlap_partial_carries_daewoon_assumptions(chou):
+    unknown = chart("1990-01-01", None, "male")  # PARTIAL, DAEWOON_START_APPROXIMATE
+    records = by_rule(build_couple_evidence(unknown, chou, 2026), "COUPLE_LUCK_OVERLAP")
+    assert len(records) == 10
+    for e in records:
+        assert DAEWOON_PRIMARY_ONLY in e.assumptions
+        assert DAEWOON_START_APPROXIMATE in e.assumptions
+    confirmed = by_rule(build_couple_evidence(chou, chou, 2026), "COUPLE_LUCK_OVERLAP")
+    assert not any(DAEWOON_PRIMARY_ONLY in e.assumptions for e in confirmed)
 
 
 FORBIDDEN = ("probability", "score", "확률", "o/x", "점수", "verdict", "outcome", "예측", "보장")

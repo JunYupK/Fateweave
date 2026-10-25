@@ -47,6 +47,7 @@ RULE_ORDER: tuple[str, ...] = (
 )
 BOUNDARY_ASSUMPTION = "depends on primary pillar set; alternatives exist (BOUNDARY_REVIEW_REQUIRED)"
 DAEWOON_PRIMARY_ONLY = "computed for primary pillar set only"
+DAEWOON_START_APPROXIMATE = "start age approximate: birth time unknown (DAEWOON_START_APPROXIMATE)"
 _SUBJECT_KEY = re.compile(r"[A-Za-z0-9]+")
 
 POSITIONS = ("year", "month", "day", "hour")
@@ -308,7 +309,7 @@ def _daewoon_rule(chart: ChartSnapshot) -> list[_Draft]:
     if chart.certainty == "PARTIAL":
         assumptions.append(DAEWOON_PRIMARY_ONLY)
     if "DAEWOON_START_APPROXIMATE" in chart.warning_codes:
-        assumptions.append("start age approximate: birth time unknown (DAEWOON_START_APPROXIMATE)")
+        assumptions.append(DAEWOON_START_APPROXIMATE)
     return [
         _Draft(
             kind="computed",
