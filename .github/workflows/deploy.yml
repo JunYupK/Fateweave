@@ -75,8 +75,14 @@ jobs:
           SHA: ${{ steps.ref.outputs.sha }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          # Secrets pasted from Windows keep CRLF line endings, which OpenSSH rejects
+          # ("error in libcrypto"); strip carriage returns before use.
+          printf '%s\n' "$KEY" | tr -d '\r' > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN" | tr -d '\r' > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          if ! ssh-keygen -y -P '' -f ~/.ssh/deploy_key > /dev/null; then
+            echo "::error::OCI_SSH_KEY is not a usable private key: paste the whole file (BEGIN/END lines included) and make sure it has no passphrase."
+            exit 1
+          fi
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
             "$USER_@$HOST" "sudo /opt/fateweave/deploy/deploy.sh $SHA"
 
