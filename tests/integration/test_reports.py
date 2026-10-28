@@ -4,7 +4,7 @@ import uuid
 from datetime import date, time
 
 import pytest
-from helpers import invalid_draft, valid_draft
+from helpers import full_sections, invalid_draft, valid_draft
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -112,7 +112,7 @@ async def test_success_creates_version_one(engine: AsyncEngine):
 
 async def test_markdown_is_deterministic_and_ordered(engine: AsyncEngine):
     prepared = await _prepared(engine, "couple")
-    sections = {name: f"{name} 본문" for name in reversed(REQUIRED_SECTIONS["couple"])}
+    sections = dict(reversed(full_sections("couple").items()))
     sections["zz_extra"] = "추가 z"
     sections["aa_extra"] = "추가 a"
     draft = valid_draft(prepared, sections=sections)
@@ -127,7 +127,7 @@ async def test_markdown_is_deterministic_and_ordered(engine: AsyncEngine):
         str(rid),
         str(prepared.analysis_id),
         "manse-v1",
-        "rules-v1",
+        "rules-v2",
         "report-v1",
         "claude-test",
         "prompt-v1",
@@ -330,7 +330,7 @@ async def test_get_markdown_includes_versions_and_caveats(engine: AsyncEngine):
     assert view.analysis_id == prepared.analysis_id
     assert (view.manse_version, view.rule_version, view.report_schema_version) == (
         "manse-v1",
-        "rules-v1",
+        "rules-v2",
         "report-v1",
     )
     assert view.evidence_digest == evidence_digest(prepared.evidence_catalog)

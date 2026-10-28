@@ -44,7 +44,7 @@ async def test_prepare_individual_persists_snapshot(engine: AsyncEngine):
     assert prepared.mode == "individual"
     assert list(prepared.facts) == ["self"]
     assert prepared.evidence_catalog
-    assert prepared.policy_version == "manse-v1" and prepared.rule_version == "rules-v1"
+    assert prepared.policy_version == "manse-v1" and prepared.rule_version == "rules-v2"
     assert (prepared.start_year, prepared.horizon_years) == (2026, 10)
     assert [s.year for s in prepared.facts["self"].sewoon] == list(range(2026, 2036))
 

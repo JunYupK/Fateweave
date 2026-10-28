@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from fateweave.config import Settings
 from fateweave.domain.calendar import BirthInputError, normalize_birth
 from fateweave.domain.couple import build_couple_evidence
+from fateweave.domain.guide import writing_guide
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
 from fateweave.models.facts import ChartSnapshot, Evidence, PreparedAnalysis
@@ -140,6 +141,7 @@ class AnalysisService:
             rule_version=Settings.RULE_VERSION,
             horizon_years=horizon_years,
             start_year=start_year,
+            writing_guide=writing_guide(mode),
         )
         snapshot = prepared.model_dump(mode="json", exclude={"analysis_id", "status"})
 

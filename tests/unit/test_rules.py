@@ -99,7 +99,7 @@ def test_fact_reference_is_stable(known):
             "branches": ["寅", "申"],
         }
     ]
-    assert "일지 寅" in chung[0].text_ko and "시지 申" in chung[0].text_ko
+    assert "일지 인" in chung[0].text_ko and "시지 신" in chung[0].text_ko
     (palace,) = by_rule(first, "SPOUSE_PALACE")
     assert palace.operands == {"position": "day_branch", "branch": "寅", "ten_god": "偏印"}
 
@@ -137,7 +137,10 @@ def test_missing_hour_excludes_hour_evidence(known, unknown):
     }
     # Only the year/day branch 害 survives without the hour branch.
     assert [e.operands["name"] for e in by_rule(evidence, "BRANCH_RELATIONS")] == ["寅巳害"]
-    (elements,) = by_rule(evidence, "ELEMENTS")
+    elements, with_hidden = sorted(
+        by_rule(evidence, "ELEMENTS"), key=lambda e: e.operands["basis"], reverse=True
+    )
+    assert with_hidden.operands["basis"] == "stems_and_all_hidden_stems"
     assert elements.operands["positions"] == ["year", "month", "day"]
     assert sum(elements.operands["counts"].values()) == 6
     # 格局 needs the hour stem (月支 透干 check), so it is not determined.
@@ -162,25 +165,33 @@ def test_missing_hour_excludes_hour_evidence(known, unknown):
     assert not any(BOUNDARY in e.assumptions or PRIMARY_ONLY in e.assumptions for e in with_hour)
 
 
-def test_unavailable_yongsin_not_fabricated(known, unknown):
+def test_school_dependent_judgements_name_their_method(known, unknown):
     for snap in (known, unknown):
         evidence = build_individual_evidence(snap, "A")
-        yongsin = by_rule(evidence, "YONGSIN")
-        assert yongsin, "the school-dependent premise is still named"
-        for e in yongsin:
-            assert e.kind == "interpretation_cue"
-            assert e.operands["status"] == "not_computed"
-            # No element (or anything else) is put forward as the 用神.
-            assert not ELEMENTS & set(canonical(e.operands))
-            assert not ELEMENTS & set(e.text_ko)
-        # 調候 states only the month-branch season; the needed element is not asserted.
+        (strength,) = by_rule(evidence, "STRENGTH")
+        (yongsin,) = by_rule(evidence, "YONGSIN")
+        assert strength.kind == yongsin.kind == "rule_derived"  # never "computed"
+        assert any("method" in a for a in strength.assumptions)
+        assert any("억부 candidates only" in a for a in yongsin.assumptions)
+        assert set(yongsin.operands["elements"]) <= ELEMENTS
         for e in by_rule(evidence, "JOHU"):
-            assert not ELEMENTS & set(canonical(e.operands)), e
-        # No other rule smuggles in a 用神 / 喜神 / 忌神 result.
+            assert e.kind == "rule_derived" and e.assumptions
+        # No other rule asserts a 用神 / 喜神 / 忌神 result.
         for e in evidence:
-            assert not re.search("用神|喜神|忌神|yong", canonical(e.operands)), e
-            if e.rule_code != "YONGSIN":
-                assert "용신" not in e.text_ko, e
+            assert not re.search("用神|喜神|忌神", canonical(e.operands)), e
+    # 1990-01-01 丙寅 일주 in 子月: 中和 either way (unknown hour rescales the known 8 points).
+    levels = [by_rule(build_individual_evidence(s, "A"), "STRENGTH")[0].operands for s in
+              (known, unknown)]
+    assert [x["level"] for x in levels] == ["中和", "中和"]
+    assert levels[1]["birth_time_known"] is False
+    (johu,) = by_rule(build_individual_evidence(known, "A"), "JOHU")
+    assert johu.operands["elements"] == ["火"]  # winter month: 火
+
+
+def test_text_ko_is_hangul(known, unknown):
+    for snap in (known, unknown):
+        for e in build_individual_evidence(snap, "A"):
+            assert not re.search(r"[\u4e00-\u9fff]", e.text_ko), e.text_ko
 
 
 def test_evidence_sources_are_identified(known, unknown):
@@ -192,7 +203,7 @@ def test_evidence_sources_are_identified(known, unknown):
         for e in evidence:
             assert e.text_ko.strip()
             assert e.source_ref, e
-            assert e.source_ref.startswith(("manse-v1#", "rules-v1#", library)), e
+            assert e.source_ref.startswith(("manse-v1#", "rules-v2#", library)), e
         for e in evidence:
             if e.rule_code in ("TEN_GODS", "DAEWOON", "SEWOON"):
                 assert e.kind == "computed" and e.source_ref.startswith(library), e
@@ -200,7 +211,7 @@ def test_evidence_sources_are_identified(known, unknown):
                 assert e.kind == "computed" and e.source_ref == "manse-v1#PILLARS"
             if e.rule_code in ("SPOUSE_PALACE", "ELEMENTS", "BRANCH_RELATIONS"):
                 assert e.kind == "rule_derived"
-                assert e.source_ref == f"rules-v1#{e.rule_code}"
+                assert e.source_ref == f"rules-v2#{e.rule_code}"
             if e.rule_code == "GYEOKGUK" and e.kind == "rule_derived":
                 assert e.source_ref.startswith(library)
                 assert e.assumptions  # the school-dependent criterion is stated
@@ -214,7 +225,7 @@ def test_rule_order_does_not_change_digest(known, unknown, monkeypatch):
     for snap in (known, unknown):
         baseline = build_individual_evidence(snap, "A")
         # Output is sorted by rule order, then id.
-        keys = [(RULE_ORDER.index(e.rule_code), e.id) for e in baseline]
+        keys = [rules.sort_key(RULE_ORDER)(e) for e in baseline]
         assert keys == sorted(keys)
         assert evidence_digest(baseline) == evidence_digest(list(reversed(baseline)))
 
@@ -223,19 +234,5 @@ def test_rule_order_does_not_change_digest(known, unknown, monkeypatch):
         monkeypatch.undo()
         assert [e.id for e in shuffled] == [e.id for e in baseline]
         assert evidence_digest(shuffled) == evidence_digest(baseline)
-    assert (
-        set(rules.RULES)
-        == set(RULE_ORDER)
-        == {
-            "PILLARS",
-            "TEN_GODS",
-            "SPOUSE_PALACE",
-            "ELEMENTS",
-            "BRANCH_RELATIONS",
-            "GYEOKGUK",
-            "YONGSIN",
-            "JOHU",
-            "DAEWOON",
-            "SEWOON",
-        }
-    )
+    assert set(rules.RULES) == set(RULE_ORDER)
+    assert len(RULE_ORDER) == 20

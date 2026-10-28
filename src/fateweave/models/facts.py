@@ -133,4 +133,6 @@ class PreparedAnalysis(BaseModel):
     rule_version: str
     horizon_years: int
     start_year: int
+    # rules-v2: section-by-section writing guide (empty for analyses prepared under rules-v1).
+    writing_guide: dict[str, Any] = {}
     status: Literal["PREPARED", "VALIDATION_FAILED", "FINALIZED", "ABANDONED"] = "PREPARED"

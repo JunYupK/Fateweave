@@ -23,6 +23,15 @@ Env vars / 환경변수: `FATEWEAVE_DATABASE_URL`, `FATEWEAVE_MCP_KEY`, `FATEWEA
 - 출생시간 미상: `hour_pillar = null`이며 임의 시각을 확정 결과로 저장하지 않는다. 그 날짜 전체를 검토해 자정·절기 경계로 연·월·일주가 달라질 수 있으면 `PARTIAL` + 대안 명식 + `BOUNDARY_REVIEW_REQUIRED` 경고를 낸다.
 - 독립 검증 근거와 출처: `tests/fixtures/verified_manse_cases.json`.
 
+## 해석 규칙 rules-v2 / Interpretation rules
+
+- 근거(evidence)의 `operands`는 한자(검증·ID용), `text_ko`는 한글. claim의 `computed_values`는 한자·한글 표기 모두 허용.
+- 개인: 사주 네 기둥·십성·지장간·12운성(화토동법), 배우자궁·배우자성(남 재성, 여 관성), 표면/지장간 오행, 신강약(korean-saju 10점제, 시 미상이면 아는 8점을 10점으로 환산), 억부·조후 용신 *후보*, 지지 합충형파해·원진·귀문, 천간합충, 신살(도화·역마·화개·홍염·천을귀인·양인·고신·과숙·백호·괴강·고란·음양차착), 공망, 격국.
+- 결혼 시기(`domain/timing.py`): `DAEWOON_FLOW`(대운별 십성·원국 관계·단서), `YEAR_TIMING`(연도별 단서·주의·순위), `MONTH_TIMING`(상위 3개 연도의 월별 단서). 단서는 배우자성, 일간합, 배우자궁 육합·삼합, 도화·홍염, 대운 배우자성 등 전통 규칙에 이름을 붙인 것이며 예측이 아니다. 순위는 핵심 단서 개수 순서일 뿐 가능성이 아니다.
+- 커플: 일간 오행 관계, 서로의 배우자성 여부, 오행 보완, `COUPLE_TIMING`(연도별 두 사람 단서와 공동 순위), 대운 겹침.
+- 리포트(`domain/guide.py`): 섹션별 다룰 내용과 최소 분량을 `prepare_analysis` 응답의 `writing_guide`로 내려주고, 검증에서 `SECTION_TOO_SHORT`·`HANJA_HEAVY`(섹션 한자 5% 초과)·timing claim 누락을 거절한다. rules-v1로 준비된 분석은 기존 8개(커플 6개) 섹션 규칙을 그대로 쓴다.
+- 신살표는 학파별 이견이 있는 경우 한국 만세력 앱에서 흔한 쪽을 쓰고 assumptions에 이견을 적는다 (예: 홍염 乙→午, 괴강에서 戊辰 제외). korean-saju 0.3.0의 신살 모듈은 원진·귀문을 같은 표로 계산하는 문제가 있어 쓰지 않는다.
+
 ## Running integration tests
 
 Storage tests need a disposable PostgreSQL. They read `TEST_DATABASE_URL` only (never `FATEWEAVE_DATABASE_URL`) and skip when it is unset. Each session creates and drops its own `fateweave_test_<random>` database via Alembic.
@@ -99,6 +108,26 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than
    running `alembic downgrade` on live data.
+
+## CI/CD
+
+- **CI** (`.github/workflows/ci.yml`, every push and PR): `ruff check`, shellcheck on `deploy/*.sh`,
+  unit tests, integration tests against a PostgreSQL 16 service container (`TEST_DATABASE_URL`),
+  Docker image build + import smoke test, and `compose config -q` with a dummy env file.
+- **CD** (`.github/workflows/deploy.yml`): after CI succeeds on a push to `master`, or by hand
+  (Actions → Deploy → Run workflow, optional commit sha). It SSHes to the VM and runs
+  `sudo /opt/fateweave/deploy/deploy.sh <sha>`, which refuses commits not on `origin/master`, builds,
+  takes a backup, migrates with the owner URL, restarts, waits for a healthy container, and rebuilds
+  the previous commit if the health check fails (schema is not rolled back).
+- **One-time setup:**
+  1. VM: the repo checked out at `/opt/fateweave` (a read-only deploy key if the repo is private); a
+     deploy user allowed `sudo /opt/fateweave/deploy/deploy.sh *` without a password;
+     `/etc/fateweave/deploy.env` (root, mode 600) with the owner `FATEWEAVE_DATABASE_URL` and the
+     backup variables (`BACKUP_DIR`, `PGHOST`, `PGUSER`, `PGPASSFILE`). See the header of `deploy/deploy.sh`.
+  2. GitHub: an environment named `production` (add required reviewers to approve each deploy) with
+     secrets `OCI_SSH_HOST`, `OCI_SSH_USER`, `OCI_SSH_KEY`, `OCI_SSH_KNOWN_HOSTS`
+     (`ssh-keyscan -t ed25519 <host>`, verified once by hand). Until they exist the deploy job is
+     skipped with a notice.
 
 ## ChatGPT handoff
 

@@ -51,17 +51,26 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
 작업 순서 (workflow):
 1. `prepare_analysis`를 호출한다 (mode=`individual`은 profile 1개, `couple`은 2개). \
 응답의 `analysis_id`, `facts`, `evidence_catalog`, `missing_data`만 근거로 쓴다.
-2. 전체 `ReportDraft`를 작성한다 (schema_version `report-v1`).
+2. 전체 `ReportDraft`를 작성한다 (schema_version `report-v1`). 응답의 `writing_guide`가 \
+섹션별로 다룰 내용, 최소 분량(min_chars), 문체 규칙을 정한다. 반드시 따른다.
    - individual 필수 sections: {_sections("individual")}
    - couple 필수 sections: {_sections("couple")}
+   - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 5%를 넘으면 \
+`HANJA_HEAVY`가 된다. 본문은 한글로 쓴다 (예: 을미 일주, 정재, 도화살). 명리 용어는 일상 언어로 \
+풀어 쓴다.
+   - 해석 깊이: 신강약(STRENGTH), 용신 후보(YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), \
+배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, 학파 의존 판단은 방법론을 밝힌다.
+   - 결혼 시기: DAEWOON_FLOW로 10년 구간을, YEAR_TIMING(커플은 COUPLE_TIMING)으로 연도별 \
+표와 순위 상위 연도를, MONTH_TIMING으로 유력 월을 구체적으로 쓴다. 해당 timing evidence를 \
+인용하는 claim이 최소 1개 필요하다.
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
-`computed_values`에 해당 evidence `operands`의 값을 정확히 그대로 적는다.
+`computed_values`에 해당 evidence `operands`의 값을 그대로 적는다 (한자·한글 표기 모두 허용).
    - draft에는 `evidence_catalog`의 evidence ID를 인용하는 kind `computed` claim이 최소 1개 \
 반드시 있어야 한다 (at least one structured computed claim citing server evidence). 없으면 \
 `VALIDATION_FAILED`가 된다.
    - 해석적 판단은 kind `interpretation` claim으로 분리하고 evidence ID를 인용한다.
    - 결혼 확률·퍼센트(probability)나 O/X 판정을 절대 쓰지 않는다. 출생 시각 미상이나 \
-경계(boundary) 불확실성은 limitations와 caveats에 밝힌다.
+경계(boundary) 불확실성은 limitations와 caveats에 한 번 밝힌다.
 3. 새 `idempotency_key`(예: UUID)로 `finalize_report`를 호출한다. 같은 draft를 재시도할 때만 \
 같은 키를 다시 쓴다.
 4. 응답 `status`가 `FINALIZED`일 때에만 사용자에게 "저장되었다"고 말하고 `report_id`를 알려준다. \

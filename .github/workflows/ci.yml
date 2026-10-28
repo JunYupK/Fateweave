@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - name: Shell scripts
+        run: shellcheck deploy/*.sh
+
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Disposable CI database only; the suite creates and drops its own fateweave_test_* DB.
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:test@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Unit tests
+        run: uv run pytest -q tests/unit
+      - name: Integration tests (PostgreSQL 16)
+        run: uv run pytest -q tests/integration
+
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f deploy/Dockerfile -t fateweave-api:ci .
+      - name: Image starts and imports the app
+        run: docker run --rm --entrypoint python fateweave-api:ci -c "import fateweave.api"
+      - name: Compose file validates (dummy env, quiet mode only)
+        run: |
+          env_file="$RUNNER_TEMP/fateweave.env"
+          printf 'FATEWEAVE_DATABASE_URL=postgresql+asyncpg://u:p@localhost/db\nFATEWEAVE_MCP_KEY=ci\nFATEWEAVE_PUBLIC_HOST=example.invalid\n' > "$env_file"
+          FATEWEAVE_ENV_FILE="$env_file" docker compose -p fateweave -f deploy/compose.fateweave.yaml config -q
