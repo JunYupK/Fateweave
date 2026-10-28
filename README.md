@@ -109,6 +109,26 @@ publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than
    running `alembic downgrade` on live data.
 
+## CI/CD
+
+- **CI** (`.github/workflows/ci.yml`, every push and PR): `ruff check`, shellcheck on `deploy/*.sh`,
+  unit tests, integration tests against a PostgreSQL 16 service container (`TEST_DATABASE_URL`),
+  Docker image build + import smoke test, and `compose config -q` with a dummy env file.
+- **CD** (`.github/workflows/deploy.yml`): after CI succeeds on a push to `master`, or by hand
+  (Actions → Deploy → Run workflow, optional commit sha). It SSHes to the VM and runs
+  `sudo /opt/fateweave/deploy/deploy.sh <sha>`, which refuses commits not on `origin/master`, builds,
+  takes a backup, migrates with the owner URL, restarts, waits for a healthy container, and rebuilds
+  the previous commit if the health check fails (schema is not rolled back).
+- **One-time setup:**
+  1. VM: the repo checked out at `/opt/fateweave` (a read-only deploy key if the repo is private); a
+     deploy user allowed `sudo /opt/fateweave/deploy/deploy.sh *` without a password;
+     `/etc/fateweave/deploy.env` (root, mode 600) with the owner `FATEWEAVE_DATABASE_URL` and the
+     backup variables (`BACKUP_DIR`, `PGHOST`, `PGUSER`, `PGPASSFILE`). See the header of `deploy/deploy.sh`.
+  2. GitHub: an environment named `production` (add required reviewers to approve each deploy) with
+     secrets `OCI_SSH_HOST`, `OCI_SSH_USER`, `OCI_SSH_KEY`, `OCI_SSH_KNOWN_HOSTS`
+     (`ssh-keyscan -t ed25519 <host>`, verified once by hand). Until they exist the deploy job is
+     skipped with a notice.
+
 ## ChatGPT handoff
 
 Reports are generated and saved from a Claude chat through the remote MCP connector. To continue in ChatGPT (or any other assistant), call `get_report` with `format='markdown'` and paste the whole Markdown into the other chat, then ask follow-up questions about it. The Markdown carries `report_id`/`version`, the rule/manse versions, the `structured_fact_validation` scope badge and an evidence appendix, so every cited evidence ID can be looked up in the same document. Only structured computed claims are machine-checked; interpretations are traditional myeongri readings, not verified probabilities. Pasting a report shares it with that service, so do it only for reports you are comfortable sharing. The manual end-to-end checklist (real Claude chat plus ChatGPT handoff) is section C of `scripts/acceptance.md` and is pending manual (R4).

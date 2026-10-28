@@ -1,0 +1,85 @@
+name: Deploy
+
+# Runs after CI succeeds on master, or by hand (Actions → Deploy → Run workflow).
+# The VM builds and migrates itself with deploy/deploy.sh; this job only connects over SSH.
+#
+# One-time setup (repository Settings):
+#   Environment "production" (optionally with required reviewers) holding these secrets:
+#     OCI_SSH_HOST         VM address
+#     OCI_SSH_USER         deploy user (allowed to run deploy.sh via sudo without a password)
+#     OCI_SSH_KEY          private key for that user (a key used only for deploys)
+#     OCI_SSH_KNOWN_HOSTS  output of `ssh-keyscan -t ed25519 <host>`, checked once by hand
+#   Without these secrets the job is skipped with a notice instead of failing.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit on master to deploy (default: latest master)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - name: Resolve commit
+        id: ref
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          sha="${INPUT_SHA:-${RUN_SHA:-$DEFAULT_SHA}}"
+          case "$sha" in *[!0-9a-f]*|'') echo "invalid sha: $sha" >&2; exit 1 ;; esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check deploy secrets
+        id: secrets
+        env:
+          HOST: ${{ secrets.OCI_SSH_HOST }}
+          KEY: ${{ secrets.OCI_SSH_KEY }}
+          KNOWN: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
+          USER_: ${{ secrets.OCI_SSH_USER }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$KEY" ] || [ -z "$KNOWN" ] || [ -z "$USER_" ]; then
+            echo "::notice::Deploy skipped: set OCI_SSH_HOST, OCI_SSH_USER, OCI_SSH_KEY and OCI_SSH_KNOWN_HOSTS in the production environment."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy over SSH
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          HOST: ${{ secrets.OCI_SSH_HOST }}
+          USER_: ${{ secrets.OCI_SSH_USER }}
+          KEY: ${{ secrets.OCI_SSH_KEY }}
+          KNOWN: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
+          SHA: ${{ steps.ref.outputs.sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$USER_@$HOST" "sudo /opt/fateweave/deploy/deploy.sh $SHA"
+
+      - name: Clean up key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
