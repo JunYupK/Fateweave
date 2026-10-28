@@ -17,6 +17,8 @@ COPY --from=builder /app/.venv /app/.venv
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini pyproject.toml uv.lock ./
+# Readable by the runtime user whatever the build host's file modes were.
+RUN chmod -R a+rX /app/src /app/alembic /app/alembic.ini
 USER fateweave
 EXPOSE 8080
 CMD ["python", "-m", "fateweave"]

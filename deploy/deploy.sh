@@ -8,7 +8,8 @@
 #   FATEWEAVE_DEPLOY_ENV   root-owned file, mode 600, never committed (default
 #                          /etc/fateweave/deploy.env). It holds the MIGRATION credentials:
 #                            FATEWEAVE_DATABASE_URL=postgresql+asyncpg://fateweave_owner:...@host.docker.internal:5432/fateweave
-#                          and, to take a backup before every migration (recommended):
+#                          and, to take a backup before every migration (recommended; needs a
+#                          host pg_dump at least as new as the server, e.g. postgresql-client-16):
 #                            BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1
 #                            PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass
 #                          The runtime app credentials stay in /etc/fateweave/fateweave.env.
@@ -18,7 +19,9 @@
 # is rebuilt and restarted. The schema is not rolled back (migrations are forward-compatible;
 # restore the pre-deploy dump if a migration itself is bad — see README, Rollback).
 set -euo pipefail
-umask 077
+# The checkout is copied into the image and read there by an unprivileged user, so files written
+# by git must stay world-readable (a 077 umask breaks the app with PermissionError).
+umask 022
 
 # Everything runs inside main(): bash parses the whole function before running it, so checking
 # out another commit (which rewrites this file) cannot change the script mid-run.
@@ -59,13 +62,16 @@ main() {
     fi
     previous=$(git rev-parse HEAD)
     echo "deploying $REF (previous $previous)"
+    # Until the new version is started, any failure puts the checkout back on the running commit,
+    # so a retry still knows which commit to roll back to.
+    restore="$previous"
+    trap 'if [ -n "$restore" ]; then git checkout --quiet --detach "$restore"; echo "checkout restored to $restore" >&2; fi' EXIT
     git checkout --quiet --detach "$REF"
 
     compose build --pull
 
     if [ ! -r "$DEPLOY_ENV" ]; then
         echo "missing $DEPLOY_ENV (migration credentials); see the header of this script" >&2
-        git checkout --quiet --detach "$previous"
         exit 5
     fi
     # Owner credentials come from the root-only file and reach the one-off migration container through
@@ -82,6 +88,7 @@ main() {
     compose run --rm -e FATEWEAVE_DATABASE_URL fateweave-api alembic upgrade head
     unset FATEWEAVE_DATABASE_URL PGPASSWORD
 
+    restore=""
     compose up -d
     if wait_healthy; then
         echo "deployed $REF: healthy"
