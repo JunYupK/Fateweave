@@ -16,8 +16,9 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from fateweave.domain.guide import required_sections, section_labels
 from fateweave.domain.rules import evidence_digest
-from fateweave.domain.validation import PROBABILITY_PATTERNS, REQUIRED_SECTIONS, validate_report
+from fateweave.domain.validation import PROBABILITY_PATTERNS, validate_report
 from fateweave.models.facts import PreparedAnalysis
 from fateweave.models.reports import ReportDraft, ValidationError
 from fateweave.services.analysis import AnalysisError, prepared_from_row
@@ -30,18 +31,7 @@ VALIDATION_BADGE = "검증 범위: structured_fact_validation (구조화된 계�
 _IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
 _TITLES = {"individual": "개인 결혼 사주 리포트", "couple": "커플 궁합 리포트"}
-_SECTION_LABELS = {
-    "summary": "요약",
-    "personality": "성향",
-    "relationship_style": "연애·관계 스타일",
-    "spouse_profile": "배우자상",
-    "married_life": "결혼 생활",
-    "marriage_timing": "결혼 시기",
-    "evidence_explanation": "근거 설명",
-    "limitations": "한계",
-    "marital_compatibility": "부부 궁합",
-    "relationship_potential": "관계 발전 가능성",
-}
+_SECTION_LABELS = section_labels()
 
 
 class ReportError(Exception):
@@ -135,7 +125,7 @@ def render_markdown_v1(
     correction: tuple[int, str] | None = None,
 ) -> str:
     """Deterministic Markdown for a validated draft (renderer `md-v1`); no birth dates/times."""
-    required = REQUIRED_SECTIONS[draft.report_type]
+    required = required_sections(draft.report_type, prepared.rule_version)
     extras = sorted(k for k in draft.sections if k not in required)
     lines = [
         f"# {_TITLES[draft.report_type]}",

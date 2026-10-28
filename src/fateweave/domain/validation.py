@@ -7,31 +7,17 @@ Only structured claims are machine-checked; free prose cannot be exhaustively fa
 import re
 from typing import Any
 
+from fateweave.domain.glossary import hanja_count, same_value
+from fateweave.domain.guide import MAX_HANJA_RATIO, SECTIONS, TIMING_RULES, required_sections
 from fateweave.models.facts import Evidence, PreparedAnalysis
 from fateweave.models.reports import Claim, ReportDraft, ValidationError, ValidationResult
 
+# Current (rules-v2) required sections per mode; rules-v1 analyses keep their own set.
 REQUIRED_SECTIONS: dict[str, tuple[str, ...]] = {
-    "individual": (
-        "summary",
-        "personality",
-        "relationship_style",
-        "spouse_profile",
-        "married_life",
-        "marriage_timing",
-        "evidence_explanation",
-        "limitations",
-    ),
-    "couple": (
-        "summary",
-        "marital_compatibility",
-        "relationship_potential",
-        "marriage_timing",
-        "evidence_explanation",
-        "limitations",
-    ),
+    mode: tuple(sec.key for sec in sections) for mode, sections in SECTIONS.items()
 }
 
-MAX_SECTION_CHARS = 40_000
+MAX_SECTION_CHARS = 80_000
 
 PROBABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"결혼 확률\s*\d+(?:\.\d+)?%"),
@@ -126,7 +112,7 @@ def _check_computed(
             actual = _resolve(ev.operands, key)
             if actual is _MISSING:
                 failures.append(_err("FACT_MISMATCH", f"key {key} not found in {ev.id}", path))
-            elif str(actual) != str(claimed):
+            elif not same_value(actual, claimed):
                 failures.append(
                     _err(
                         "FACT_MISMATCH",
@@ -163,6 +149,34 @@ def _check_interpretation(
     return errors
 
 
+def _check_depth(draft: ReportDraft) -> list[ValidationError]:
+    """rules-v2: minimum section length and a hangul-first style (few hanja per section)."""
+    errors: list[ValidationError] = []
+    for sec in SECTIONS[draft.report_type]:
+        text = draft.sections.get(sec.key, "").strip()
+        if text and len(text) < sec.min_chars:
+            errors.append(
+                _err(
+                    "SECTION_TOO_SHORT",
+                    f"section {sec.key} has {len(text)} chars; write at least {sec.min_chars} "
+                    f"(target about {sec.target_chars})",
+                    f"sections.{sec.key}",
+                )
+            )
+    for key, text in draft.sections.items():
+        count = hanja_count(text)
+        if len(text) >= 100 and count / len(text) > MAX_HANJA_RATIO:
+            errors.append(
+                _err(
+                    "HANJA_HEAVY",
+                    f"section {key} uses {count} hanja characters; write terms in hangul "
+                    f"(e.g. 을미, 정재) and keep hanja under {MAX_HANJA_RATIO:.0%}",
+                    f"sections.{key}",
+                )
+            )
+    return errors
+
+
 def _cites_server_evidence(claim: Claim, catalog: dict[str, Evidence]) -> bool:
     return claim.kind == "computed" and any(eid in catalog for eid in claim.evidence_ids)
 
@@ -188,7 +202,7 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
             )
         )
 
-    required = REQUIRED_SECTIONS[draft.report_type]
+    required = required_sections(draft.report_type, run.rule_version)
     for name in required:
         if not draft.sections.get(name, "").strip():
             errors.append(
@@ -201,6 +215,9 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
     for name, text in draft.sections.items():
         if name not in required and not text.strip():
             errors.append(_err("MISSING_SECTION", f"section {name} is blank", f"sections.{name}"))
+
+    if run.rule_version != "rules-v1":
+        errors.extend(_check_depth(draft))
 
     catalog = {ev.id: ev for ev in run.evidence_catalog}
     for i, claim in enumerate(draft.claims):
@@ -215,6 +232,21 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
                 "UNSUPPORTED_CLAIM",
                 "at least one structured computed claim citing server evidence "
                 "(an evidence_catalog id) is required",
+                "claims",
+            )
+        )
+
+    timing_rule = TIMING_RULES[draft.report_type]
+    has_timing = any(e.rule_code == timing_rule for e in run.evidence_catalog)
+    if run.rule_version != "rules-v1" and has_timing and not any(
+        catalog.get(eid) is not None and catalog[eid].rule_code == timing_rule
+        for c in draft.claims
+        for eid in c.evidence_ids
+    ):
+        errors.append(
+            _err(
+                "UNSUPPORTED_CLAIM",
+                f"marriage_timing needs at least one claim citing {timing_rule} evidence",
                 "claims",
             )
         )

@@ -5,6 +5,8 @@ from uuid import uuid4
 import pytest
 
 from fateweave.domain.calendar import normalize_birth
+from fateweave.domain.glossary import hangul
+from fateweave.domain.guide import LEGACY_REQUIRED, SECTIONS
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
 from fateweave.domain.validation import REQUIRED_SECTIONS, validate_report
@@ -117,12 +119,24 @@ def test_rejects_wrong_year_or_stem(run):
 
 def test_rule_code_mismatch_and_cue_rejected(run):
     e = ev(run, "SEWOON", year=2027)
-    cue = ev(run, "YONGSIN")
+    cue = Evidence(
+        id="E-self-GYEOKGUK-00000000",
+        kind="interpretation_cue",
+        rule_code="GYEOKGUK",
+        operands={"status": "not_determined"},
+        text_ko="격국 미판정",
+        source_ref=None,
+        assumptions=[],
+    )
+    with_cue = run.model_copy(update={"evidence_catalog": [*run.evidence_catalog, cue]})
     claims = [
         computed("DAEWOON", [e.id], {"year": 2027}),
-        computed("YONGSIN", [cue.id], {"status": "not_computed"}),
+        computed("GYEOKGUK", [cue.id], {"status": "not_determined"}),
     ]
-    assert codes(validate_report(draft(claims), run)) == ["FACT_MISMATCH", "UNSUPPORTED_CLAIM"]
+    assert codes(validate_report(draft(claims), with_cue)) == [
+        "FACT_MISMATCH",
+        "UNSUPPORTED_CLAIM",
+    ]
 
 
 def test_dotted_path_resolution(run):
@@ -235,9 +249,9 @@ def test_rejects_unsupported_marriage_probability_phrase(run, phrase):
     assert codes(validate_report(draft([claim]), run)) == ["UNSUPPORTED_CLAIM"]
 
 
-def test_rejects_report_over_40000_chars(run):
+def test_rejects_report_over_80000_chars(run):
     secs = sections()
-    pad = 40_000 - sum(len(v) for k, v in secs.items() if k != "summary")
+    pad = 80_000 - sum(len(v) for k, v in secs.items() if k != "summary")
     over = secs | {"summary": "가" * (pad + 1)}
     assert codes(validate_report(draft(secs=over), run)) == ["REPORT_TOO_LARGE"]
     ok = secs | {"summary": "가" * pad}
@@ -287,4 +301,77 @@ def test_rejects_probability_phrases_near_percentages(run, phrase):
 
 def test_plain_percentage_is_not_a_probability(run):
     secs = sections() | {"summary": "오행 중 목(木)이 40% 정도로 강하다"}
+    assert validate_report(draft(secs=secs), run).valid
+
+
+# --- rules-v2: depth, hangul style, timing claims ---------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def run_v2(run) -> PreparedAnalysis:
+    return run.model_copy(update={"rule_version": "rules-v2"})
+
+
+def full_sections(report_type: str = "individual") -> dict[str, str]:
+    return {s.key: "가나다라 마바사. " * (s.min_chars // 9 + 1) for s in SECTIONS[report_type]}
+
+
+def timing_claim(run: PreparedAnalysis) -> Claim:
+    row = next(e for e in run.evidence_catalog if e.rule_code == "YEAR_TIMING")
+    return computed(
+        "YEAR_TIMING", [row.id], {"year": row.operands["year"], "rank": row.operands["rank"]}
+    )
+
+
+def test_v2_full_draft_passes(run_v2):
+    d = draft([timing_claim(run_v2)], secs=full_sections())
+    assert validate_report(d, run_v2).valid, validate_report(d, run_v2).errors
+
+
+def test_v2_short_section_rejected(run_v2):
+    secs = full_sections() | {"marriage_timing": "짧은 결혼 시기 설명"}
+    result = validate_report(draft([timing_claim(run_v2)], secs=secs), run_v2)
+    assert codes(result) == ["SECTION_TOO_SHORT"]
+    assert result.errors[0].path == "sections.marriage_timing"
+
+
+def test_v2_new_sections_required(run_v2):
+    secs = {k: v for k, v in full_sections().items() if k != "caution_periods"}
+    assert codes(validate_report(draft([timing_claim(run_v2)], secs=secs), run_v2)) == [
+        "MISSING_SECTION"
+    ]
+
+
+def test_v2_hanja_heavy_section_rejected(run_v2):
+    heavy = "乙未 日柱 偏財 正財 午未合 " * 40
+    secs = full_sections() | {"personality": heavy}
+    assert codes(validate_report(draft([timing_claim(run_v2)], secs=secs), run_v2)) == [
+        "HANJA_HEAVY"
+    ]
+    # A few hanja in parentheses on first mention are fine.
+    light = full_sections()["personality"] + " 을미(乙未) 일주"
+    secs = full_sections() | {"personality": light}
+    assert validate_report(draft([timing_claim(run_v2)], secs=secs), run_v2).valid
+
+
+def test_v2_requires_a_timing_claim(run_v2):
+    result = validate_report(draft(secs=full_sections()), run_v2)
+    assert codes(result) == ["UNSUPPORTED_CLAIM"]
+    assert "YEAR_TIMING" in result.errors[0].message
+
+
+def test_computed_values_accept_hangul_reading(run):
+    e = ev(run, "SEWOON", year=2026)
+    pillar = e.operands["pillar"]
+    hangul_pillar = hangul(pillar)
+    assert hangul_pillar != pillar
+    ok = computed("SEWOON", [e.id], {"year": 2026, "pillar": hangul_pillar})
+    assert validate_report(draft([ok]), run).valid
+    bad = computed("SEWOON", [e.id], {"year": 2026, "pillar": "갑자"})
+    assert codes(validate_report(draft([bad]), run)) == ["FACT_MISMATCH"]
+
+
+def test_legacy_rules_v1_keeps_old_sections(run):
+    # Analyses prepared under rules-v1 keep their 8 sections and no minimum length.
+    secs = {k: f"{k} text" for k in LEGACY_REQUIRED["individual"]}
     assert validate_report(draft(secs=secs), run).valid

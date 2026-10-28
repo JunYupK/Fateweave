@@ -6,13 +6,21 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from fateweave.domain.validation import REQUIRED_SECTIONS
+from fateweave.domain.guide import SECTIONS, TIMING_RULES
 from fateweave.models.facts import PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
 from fateweave.models.reports import Claim, ReportDraft
 from fateweave.services.analysis import AnalysisService
 from fateweave.services.reports import ReportService
 from fateweave.storage.db import make_sessionmaker
+
+
+def full_sections(mode: str) -> dict[str, str]:
+    """Hangul sections at each rules-v2 minimum length."""
+    return {
+        s.key: f"{s.key} 본문. " + "전통 명리 해석 문장. " * (s.min_chars // 11 + 1)
+        for s in SECTIONS[mode]
+    }
 
 
 def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
@@ -28,6 +36,17 @@ def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
             statement="계산된 사실을 그대로 인용한다.",
         )
     ]
+    timing_rule = TIMING_RULES[prepared.mode]
+    timing = next((e for e in prepared.evidence_catalog if e.rule_code == timing_rule), None)
+    if timing is not None:
+        claims.append(
+            Claim(
+                kind="interpretation",
+                rule_code=timing_rule,
+                evidence_ids=[timing.id],
+                statement="전통적으로 인연이 움직이는 시기 단서로 본다.",
+            )
+        )
     cue = next((e for e in prepared.evidence_catalog if e.kind == "interpretation_cue"), None)
     if cue is not None:
         claims.append(
@@ -40,7 +59,7 @@ def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
         )
     data = dict(
         report_type=prepared.mode,
-        sections={name: f"{name} 본문" for name in REQUIRED_SECTIONS[prepared.mode]},
+        sections=full_sections(prepared.mode),
         claims=claims,
         caveats=["전통 명리 해석이며 확률이 아니다."],
         generated_by="claude-test",

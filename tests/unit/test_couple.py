@@ -12,6 +12,7 @@ from fateweave.domain.rules import (
     DAEWOON_PRIMARY_ONLY,
     DAEWOON_START_APPROXIMATE,
     build_individual_evidence,
+    sort_key,
 )
 from fateweave.models.facts import ChartSnapshot, Evidence
 from fateweave.models.inputs import BirthProfileInput
@@ -111,7 +112,7 @@ def test_symmetrical_couple_relation_facts(zi, chou):
         {"position": "day_branch", "value": "丑"},
         {"position": "day_branch", "value": "子"},
     ]
-    assert day_branch[0].text_ko == "A 일지 子 · B 일지 丑: 육합(子丑合) 관계"
+    assert day_branch[0].text_ko == "A 일지 자 · B 일지 축: 육합(자축합) 관계"
     assert by_rule(ab, "COUPLE_DAY_STEM") == []
 
     # Cross pillars: year branches 午/午 自刑, and 午/卯 破 (A年·B月 and A月·B年 are one fact).
@@ -124,58 +125,73 @@ def test_symmetrical_couple_relation_facts(zi, chou):
 
     ids = [e.id for e in ab]
     assert len(ids) == len(set(ids))
-    # Pair evidence follows the fixed rule order, then id.
-    keys = [(COUPLE_RULE_ORDER.index(e.rule_code), e.id) for e in pair_ab]
+    # Pair evidence follows the fixed rule order, then the year (timing rules), then id.
+    keys = [sort_key(COUPLE_RULE_ORDER)(e) for e in pair_ab]
     assert keys == sorted(keys)
 
 
-def test_couple_year_candidates_inside_window(jia, gui):
+def timing_rows(evidence: list[Evidence]) -> dict[int, Evidence]:
+    return {e.operands["year"]: e for e in by_rule(evidence, "COUPLE_TIMING")}
+
+
+def test_couple_timing_records_every_year(jia, gui):
     # Snapshot sewoon covers 2026-2028 only; later years come from 60-cycle arithmetic.
-    evidence = build_couple_evidence(jia, gui, 2026, years=10)
-    timing = by_rule(evidence, "COUPLE_YEAR_WINDOW")
-    # 2028 戊申 and 2029 己酉: 戊/己 are 甲(male)'s 財 and 癸(female)'s 官. 2038/2039 are outside.
-    assert sorted((e.operands["year"], e.operands["year_pillar"]) for e in timing) == [
-        (2028, "戊申"),
-        (2029, "己酉"),
-    ]
-    for e in timing:
-        assert e.operands["condition"] == "SEWOON_STEM_SPOUSE_STAR"
-        assert 2026 <= e.operands["year"] < 2036
-        assert TIMING_ASSUMPTION in e.assumptions
-        assert e.source_ref and "COUPLE_YEAR_WINDOW" in e.source_ref
-        assert ID_RE.match(e.id)["subject"] == "AB"
-    gods_2028 = sorted(
-        (d["day_stem"], d["gender_for_daewoon"], d["ten_god"])
-        for d in next(e for e in timing if e.operands["year"] == 2028).operands["entries"]
+    rows = timing_rows(build_couple_evidence(jia, gui, 2026, years=10))
+    assert sorted(rows) == list(range(2026, 2036))
+    # 2028 戊申: 戊 is 甲(male)'s 偏財 and 癸(female)'s 正官 — both carry a spouse-star cue.
+    e2028 = rows[2028]
+    assert e2028.operands["year_pillar"] == "戊申"
+    assert e2028.operands["both_core"] is True
+    for entry in e2028.operands["entries"]:
+        assert "SPOUSE_STAR_STEM" in entry["cues"]
+    assert sorted(e["day_pillar"] for e in e2028.operands["entries"]) == ["甲戌", "癸未"]
+    # Joint ranks are a permutation, and years where both carry core cues come first.
+    ranks = {y: e.operands["joint_rank"] for y, e in rows.items()}
+    assert sorted(ranks.values()) == list(range(1, 11))
+    both = [y for y, e in rows.items() if e.operands["both_core"]]
+    assert both and max(ranks[y] for y in both) < min(
+        ranks[y] for y in rows if y not in both
     )
-    assert gods_2028 == [("甲", "male", "偏財"), ("癸", "female", "正官")]
-
+    for e in rows.values():
+        assert TIMING_ASSUMPTION in e.assumptions
+        assert ID_RE.match(e.id)["subject"] == "AB"
+        assert "COUPLE_TIMING" in e.source_ref
+        assert not re.search(r"[\u4e00-\u9fff]", e.text_ko), e.text_ko
+        assert e.operands["both_core"] == all(x["core_count"] > 0 for x in e.operands["entries"])
     # A narrower window lists only its own years.
-    narrow = by_rule(build_couple_evidence(jia, gui, 2029, years=1), "COUPLE_YEAR_WINDOW")
-    assert [e.operands["year"] for e in narrow] == [2029]
-    # Same IDs whichever window found them (operands carry the year, not the window).
-    assert narrow[0].id == next(e.id for e in timing if e.operands["year"] == 2029)
+    narrow = timing_rows(build_couple_evidence(jia, gui, 2029, years=1))
+    assert list(narrow) == [2029]
 
 
-def test_year_window_branch_condition():
+def test_couple_timing_spouse_palace_hap():
     # Both day branches 戌: 卯 years form 卯戌合 with each spouse palace (2035 乙卯).
     a = chart("1990-03-10", time(10, 30), "male")  # 甲戌
     b = chart("1990-03-22", time(10, 30), "female")  # 丙戌
     assert a.day_pillar[1] == b.day_pillar[1] == "戌"
-    timing = by_rule(build_couple_evidence(a, b, 2030, years=10), "COUPLE_YEAR_WINDOW")
-    assert [(e.operands["year"], e.operands["condition"]) for e in timing] == [
-        (2035, "SEWOON_BRANCH_HAP_SPOUSE_PALACE")
-    ]
-    assert timing[0].operands["entries"] == [{"day_branch": "戌", "name": "卯戌合"}] * 2
+    rows = timing_rows(build_couple_evidence(a, b, 2030, years=10))
+    for entry in rows[2035].operands["entries"]:
+        assert "SPOUSE_PALACE_HAP" in entry["cues"]
+    assert rows[2035].operands["both_core"] is True
 
 
-def test_zero_overlap_does_not_invent_year(zi, chou, jia, gui):
-    # 丙(male) wants 庚/辛, 丁(female) wants 壬/癸; day branches 子/丑 need 丑/子 years.
-    for start in (1990, 2026, 2050):
-        evidence = build_couple_evidence(zi, chou, start, years=30)
-        assert by_rule(evidence, "COUPLE_YEAR_WINDOW") == []
-    # A window that misses the matching years yields nothing either (2030-2034).
-    assert by_rule(build_couple_evidence(jia, gui, 2030, years=5), "COUPLE_YEAR_WINDOW") == []
+def test_couple_extra_pair_rules(jia, gui):
+    evidence = build_couple_evidence(jia, gui, 2026, years=3)
+    (element,) = by_rule(evidence, "COUPLE_DAY_STEM_ELEMENT")
+    # 甲(木) and 癸(水): 水生木.
+    assert (element.operands["relation"], element.operands["from"], element.operands["to"]) == (
+        "相生",
+        "水",
+        "木",
+    )
+    (match,) = by_rule(evidence, "COUPLE_SPOUSE_STAR_MATCH")
+    by_stem = {e["day_stem"]: e for e in match.operands["entries"]}
+    # 甲 male: partner 癸 is 正印 (not a spouse star); 癸 female: partner 甲 is 傷官.
+    assert by_stem["甲"]["partner_stem_ten_god"] == "正印"
+    assert by_stem["癸"]["partner_stem_ten_god"] == "傷官"
+    assert not by_stem["甲"]["stem_is_spouse_star"] and not by_stem["癸"]["stem_is_spouse_star"]
+    (complement,) = by_rule(evidence, "COUPLE_ELEMENT_COMPLEMENT")
+    for entry in complement.operands["entries"]:
+        assert set(entry["partner_has"]) <= set(entry["lacking"])
 
 
 @pytest.mark.parametrize("years", [0, 31, -1, 2.5, True, "10"])
@@ -245,7 +261,7 @@ def test_luck_overlap_symmetric_record(zi, chou):
         ("乙亥",),
         ("壬午", "癸未"),
     ]
-    assert e.text_ko == "2027년 丁未: A 대운 壬午 → 癸未 (전환 연도), B 대운 乙亥"
+    assert e.text_ko == "2027년 정미: A 대운 임오 → 계미 (전환 연도), B 대운 을해"
     assert TRANSITION in e.assumptions
     assert not any("condition" in x.operands for x in luck_ab)
 
@@ -264,7 +280,7 @@ def test_luck_overlap_transition_and_window(zi, chou):
     # Before the first daewoon starts, the person's daewoon is recorded as unavailable.
     early = daewoon_by_year(build_couple_evidence(zi, chou, 1990, years=1))[1990]
     assert [d["daewoon"] for d in early.operands["entries"]] == [["unavailable"]] * 2
-    assert early.text_ko == "1990년 庚午: A 대운 자료 없음, B 대운 자료 없음"
+    assert early.text_ko == "1990년 경오: A 대운 자료 없음, B 대운 자료 없음"
 
 
 def test_luck_overlap_partial_carries_daewoon_assumptions(chou):
