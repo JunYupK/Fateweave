@@ -1,7 +1,9 @@
 """Personal-use auth for `/mcp`: a fixed `X-Fateweave-Key` header, plus log redaction.
 
-The key is accepted only from the request header (never the query string) and compared in
-constant time. Failures log only "auth failed": no header values, no request bodies.
+The key is accepted from the request header, or as the last path segment of `/mcp/<key>` for
+clients that cannot send custom headers (Claude custom connectors take only a URL). It is never
+accepted from the query string, and is compared in constant time. Failures log only
+"auth failed": no header values, no paths, no request bodies.
 """
 
 import contextlib
@@ -11,7 +13,7 @@ import re
 from collections.abc import Iterator
 
 from pydantic import SecretStr
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 log = logging.getLogger(__name__)
@@ -19,19 +21,38 @@ log = logging.getLogger(__name__)
 KEY_HEADER = b"x-fateweave-key"
 REDACTED = "[REDACTED]"
 _HEADER_VALUE = re.compile(r"""(x-fateweave-key['"]?\s*[:=,]\s*['"]?)[^\s'",}]+""", re.IGNORECASE)
+# Any segment after `/mcp/`: a wrong or near-miss key there is as sensitive as the key.
+_PATH_KEY = re.compile(r"(/mcp/)[^\s/?#\"']+")
 
 
 class MCPKeyAuthMiddleware:
-    """ASGI wrapper: every HTTP request must carry the exact key in `X-Fateweave-Key`."""
+    """ASGI wrapper: every HTTP request must carry the exact key, in `X-Fateweave-Key` on `path`
+    or as the path itself (`<path>/<key>`).
 
-    def __init__(self, app: ASGIApp, key: SecretStr) -> None:
+    A wrong path key is answered like any unknown path (plain 404), so the key-in-path form does
+    not reveal that it exists. Authorized key-in-path requests reach `app` with the path
+    rewritten to `path`.
+    """
+
+    def __init__(self, app: ASGIApp, key: SecretStr, path: str = "/mcp") -> None:
         secret = key.get_secret_value().encode("utf-8")
         if not secret:
             raise ValueError("mcp_key must not be empty")
         self._app = app
         self._key = secret
+        self._path = path
+        self._prefix = path + "/"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["path"].startswith(self._prefix):
+            provided = scope["path"][len(self._prefix) :].encode("utf-8")
+            if not hmac.compare_digest(provided, self._key):
+                log.warning("auth failed")
+                await PlainTextResponse("Not Found", status_code=404)(scope, receive, send)
+                return
+            scope = {**scope, "path": self._path, "raw_path": self._path.encode("ascii")}
+            await self._app(scope, receive, send)
+            return
         if scope["type"] == "http" and not self._authorized(scope):
             log.warning("auth failed")
             response = JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -55,6 +76,7 @@ class RedactionFilter(logging.Filter):
 
     def _scrub(self, text: str) -> str:
         text = _HEADER_VALUE.sub(lambda m: m.group(1) + REDACTED, text)
+        text = _PATH_KEY.sub(lambda m: m.group(1) + REDACTED, text)
         return text.replace(self._secret, REDACTED) if self._secret else text
 
     def _clean(self, value: object) -> object:

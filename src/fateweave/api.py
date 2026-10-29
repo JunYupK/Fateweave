@@ -72,7 +72,7 @@ def create_app(
             )
             stack.enter_context(log_hygiene(cfg.mcp_key))
             await stack.enter_async_context(server.session_manager.run())
-            endpoint.app = MCPKeyAuthMiddleware(mcp_app, cfg.mcp_key)
+            endpoint.app = MCPKeyAuthMiddleware(mcp_app, cfg.mcp_key, path=MCP_PATH)
             try:
                 yield
             finally:
@@ -86,6 +86,8 @@ def create_app(
         return {"status": "ok", "service": "fateweave"}
 
     app.router.add_route(MCP_PATH, endpoint, include_in_schema=False)
+    # `/mcp/<key>`: the same endpoint for clients that can only be given a URL (see mcp/auth.py).
+    app.router.add_route(MCP_PATH + "/{key}", endpoint, include_in_schema=False)
     return app
 
 

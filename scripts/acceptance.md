@@ -35,6 +35,8 @@ After deployment (replace `$HOST` with the public host, key from the secret file
 - [ ] `curl -sS -o /dev/null -w '%{http_code}\n' https://$HOST/healthz` -> `200`
 - [ ] `curl -sS -o /dev/null -w '%{http_code}\n' -X POST https://$HOST/mcp` (no key) -> `401`
 - [ ] Token-authorized MCP `tools/list` through a real MCP client (header `X-Fateweave-Key`) lists the Fateweave tools.
+- [ ] Key-in-path: `tools/list` via `https://$HOST/mcp/<key>` without the header lists the tools; `/mcp/<wrong>` -> `404`
+      (no 3xx, no `Location`); the proxy access log does not contain the key.
 - [ ] Exact `/mcp` path, no redirects: `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -H 'X-Fateweave-Key: ...' -X POST https://$HOST/mcp/`
       -> `404` with an empty redirect URL (no 3xx, no `Location`); the same for `/mcp/mcp` and `/mcpfoo` -> `404`.
 - [ ] Any other path (`https://$HOST/foo`) -> `404`; `http://$HOST/` -> `301` to https.
@@ -56,7 +58,9 @@ After deployment (replace `$HOST` with the public host, key from the secret file
 체크하지 않는다. 실제 생년월일/리포트를 저장소·CI·이슈에 붙여넣지 말 것.
 
 - [ ] **커넥터 등록**: Claude 설정의 Connectors에서 custom remote connector 추가. 이름 `Fateweave`,
-      URL `https://<actual-host>/mcp`, 고정 요청 헤더 `X-Fateweave-Key` (값은 서버 시크릿 파일의 키; 채팅/히스토리에 노출 금지).
+      URL `https://<actual-host>/mcp/<key>` (Claude 커넥터는 임의 헤더를 지원하지 않으므로 키를 경로에 넣는다. 값은 서버
+      시크릿 파일의 키이며, 이 URL 자체가 비밀이므로 채팅/히스토리에 노출 금지). 헤더를 지원하는 클라이언트는
+      URL `https://<actual-host>/mcp` + 고정 요청 헤더 `X-Fateweave-Key`.
 - [ ] **대화별 활성화**: 새 대화에서 Fateweave 도구를 활성화하고 다섯 도구가 보이는지 확인.
 - [ ] **개인 케이스 1건 이상**: 개인 결혼 사주 분석 요청 -> `prepare_analysis` -> `finalize_report` 순서로 호출되는지 확인.
 - [ ] **커플 케이스 1건 이상**: 커플 궁합(결혼 궁합 / 관계 잠재력 / 공통 유리 시기 3영역) 요청 -> 동일 흐름 확인.

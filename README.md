@@ -60,8 +60,16 @@ existing PostgreSQL instance (no Postgres service in compose) and publishes only
 Never attach it by hand with `docker network connect`: a manual attachment is lost whenever the
 container is recreated (every deploy), and Caddy then answers 502. After a restart `deploy.sh`
 reloads Caddy (`FATEWEAVE_EDGE_PROXY`, default `my-flight-friend-caddy-1`) and checks
-`https://$FATEWEAVE_PUBLIC_HOST/healthz` through it. The Nginx vhost in `deploy/` is the
-alternative for a host-level Nginx.
+`https://$FATEWEAVE_PUBLIC_HOST/healthz` through it. The Caddy site block's source of truth is
+`deploy/caddy-fateweave.caddy` (copy it into `~/my-flight-friend/Caddyfile`); the Nginx vhost in
+`deploy/` is the alternative for a host-level Nginx.
+
+> **Claude connector authentication — the secret key is in the URL path.** The connector URL is
+> `https://fateweave.flight-friend.com/mcp/<FATEWEAVE_MCP_KEY>` because Claude custom connectors
+> cannot send the `X-Fateweave-Key` header. The key-in-path route must stay, the edge proxy must
+> forward `/mcp/<key>`, and every deploy checks that URL end to end (MCP `initialize` must answer
+> 200). Never put the key or the connector URL in code, logs, PRs or chat; read it on the VM with
+> `sudo grep '^FATEWEAVE_MCP_KEY=' /etc/fateweave/fateweave.env | cut -d= -f2-`. See `CLAUDE.md`.
 
 1. **Database (DBA, once):** `psql -X -v ON_ERROR_STOP=1 -v owner_pw=... -v app_pw=... -d postgres -f deploy/postgres-init.sql`
    creates `fateweave_owner` (migrations + admin purge) and `fateweave_app` (runtime, DML only; no DELETE,
@@ -96,6 +104,11 @@ alternative for a host-level Nginx.
    3. To delete everything behind one report: `ADMIN purge-report --report-id UUID [--confirm] [--include-orphans]`
       resolves the report's run to its participant profiles and purges each of them (dry run without `--confirm`).
    Each purge writes a JSON audit line (`fateweave.audit`: action, ids, counts, timestamp; no birth data or aliases).
+   **Clients without custom headers:** Claude custom connectors take only a URL (or OAuth), so `/mcp/<key>` (the same
+   `FATEWEAVE_MCP_KEY` as the last path segment) is accepted as well; a wrong key there is a plain `404`. The URL is then
+   the secret: keep it out of chats and tickets, and keep request paths out of proxy access logs (the Nginx vhost turns
+   the access log off for that location; the Caddy site block has no `log` directive). The key is still never accepted
+   from the query string. The edge proxy must forward `^/mcp/[A-Za-z0-9_-]{32,128}$` as well as `/mcp`.
 6. **Backups:** `deploy/backup.sh` (needs `BACKUP_DIR`, optional `KEEP_DAYS`, default 14; credentials via `PGPASSFILE`/env)
    writes a `600` custom-format dump. It is not installed in cron; suggested daily entry:
    `15 3 * * * BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1 PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass /opt/fateweave/deploy/backup.sh`.
@@ -109,8 +122,8 @@ alternative for a host-level Nginx.
    (never put the key itself on a command line or in shell history); edit `/etc/fateweave/fateweave.env` (as root, keep mode
    600) and replace the `FATEWEAVE_MCP_KEY=` value; restart so the container reads the env file again:
    `docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d --force-recreate`; then update the
-   `X-Fateweave-Key` header value in the Claude connector settings. The old key stops working as soon as the container
-   is recreated; check with the no-key/old-key `401` and new-key `tools/list` items in `scripts/acceptance.md`.
+   connector URL (`https://<host>/mcp/<key>`) or the `X-Fateweave-Key` header value in the client settings. The old key
+   stops working as soon as the container is recreated; check with the no-key/old-key `401` and new-key `tools/list` items in `scripts/acceptance.md`.
 8. **Rollback:** app only: `git checkout <previous-tag>`, rebuild and `up -d`. Failed deploy: `docker compose -p fateweave -f deploy/compose.fateweave.yaml down`
    (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than

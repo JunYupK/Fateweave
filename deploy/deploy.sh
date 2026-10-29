@@ -16,7 +16,8 @@
 #   HEALTH_TIMEOUT         seconds to wait for a healthy container (default 120)
 #   FATEWEAVE_EDGE_PROXY   container of the VM's TLS edge proxy (default my-flight-friend-caddy-1).
 #                          After a restart it is reloaded so it re-resolves fateweave-api, then
-#                          https://$FATEWEAVE_PUBLIC_HOST/healthz is checked through it.
+#                          https://$FATEWEAVE_PUBLIC_HOST/healthz and the Claude connector URL
+#                          (/mcp/<key>, MCP initialize) are checked through it.
 #
 # The commit must be reachable from origin/master. On a failed health check the previous commit
 # is rebuilt and restarted. The schema is not rolled back (migrations are forward-compatible;
@@ -75,19 +76,62 @@ main() {
             echo "warning: FATEWEAVE_PUBLIC_HOST not found; skipping the public check" >&2
             return 0
         fi
+        local ok=""
         for _ in 1 2 3 4 5 6 7 8; do
             if curl -fsS -o /dev/null --max-time 5 --resolve "$host:443:127.0.0.1" "https://$host/healthz"; then
-                echo "public path ok: https://$host/healthz"
-                return 0
+                ok=1
+                break
             fi
             sleep 5
         done
-        echo "error: https://$host/healthz fails through the edge proxy although the container is" \
-            "healthy; check that $proxy reaches fateweave-api:8080 on the edge network" >&2
-        return 6
+        if [ -z "$ok" ]; then
+            echo "error: https://$host/healthz fails through the edge proxy although the container is" \
+                "healthy; check that $proxy reaches fateweave-api:8080 on the edge network" >&2
+            return 6
+        fi
+        echo "public path ok: https://$host/healthz"
+        check_connector_url "$host"
+    }
+
+    # The Claude connector authenticates with the key in the URL path (https://<host>/mcp/<key>;
+    # it cannot send headers). Initialize MCP through the edge exactly that way, so a deploy that
+    # drops the key-in-path route, or an edge config that stops forwarding it, fails loudly.
+    # The key reaches curl on stdin (curl -K -), never argv, and is never printed.
+    check_connector_url() {
+        local host="$1" key code
+        key=$(grep -E '^FATEWEAVE_MCP_KEY=' "${FATEWEAVE_ENV_FILE:-/etc/fateweave/fateweave.env}" \
+            | head -1 | cut -d= -f2- | tr -d "\"'" || true)
+        if [ -z "$key" ]; then
+            echo "warning: FATEWEAVE_MCP_KEY not found; skipping the connector URL check" >&2
+            return 0
+        fi
+        code=$(printf 'url = "https://%s/mcp/%s"\n' "$host" "$key" | curl -sS -o /dev/null \
+            -w '%{http_code}' --max-time 10 --resolve "$host:443:127.0.0.1" -X POST \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"fateweave-deploy-check","version":"0"}}}' \
+            -K - || true)
+        unset key
+        if [ "$code" != 200 ]; then
+            echo "error: the connector URL https://$host/mcp/<key> answered ${code:-no response}" \
+                "(expected 200); the Claude connector cannot authenticate" >&2
+            return 6
+        fi
+        echo "connector URL ok: https://$host/mcp/<key> (MCP initialize 200)"
     }
 
     git fetch --quiet origin
+    # Never overwrite work that exists only on the VM: the running checkout must be a commit on
+    # origin/master with no local edits. (A local, unpushed branch was once deployed over this way
+    # and its feature silently disappeared.)
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "the checkout in $DIR has local changes; commit and push them (or discard) first" >&2
+        exit 7
+    fi
+    if ! git merge-base --is-ancestor HEAD "$BRANCH"; then
+        echo "the running checkout $(git rev-parse --short HEAD) is not on $BRANCH (local commits?);" \
+            "push them through a PR first, or check out a $BRANCH commit deliberately" >&2
+        exit 7
+    fi
     if ! git merge-base --is-ancestor "$REF" "$BRANCH"; then
         echo "commit $REF is not on $BRANCH; refusing to deploy" >&2
         exit 4
