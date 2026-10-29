@@ -96,6 +96,11 @@ alternative for a host-level Nginx.
    3. To delete everything behind one report: `ADMIN purge-report --report-id UUID [--confirm] [--include-orphans]`
       resolves the report's run to its participant profiles and purges each of them (dry run without `--confirm`).
    Each purge writes a JSON audit line (`fateweave.audit`: action, ids, counts, timestamp; no birth data or aliases).
+   **Clients without custom headers:** Claude custom connectors take only a URL (or OAuth), so `/mcp/<key>` (the same
+   `FATEWEAVE_MCP_KEY` as the last path segment) is accepted as well; a wrong key there is a plain `404`. The URL is then
+   the secret: keep it out of chats and tickets, and keep request paths out of proxy access logs (the Nginx vhost turns
+   the access log off for that location; the Caddy site block has no `log` directive). The key is still never accepted
+   from the query string. The edge proxy must forward `^/mcp/[A-Za-z0-9_-]{32,128}$` as well as `/mcp`.
 6. **Backups:** `deploy/backup.sh` (needs `BACKUP_DIR`, optional `KEEP_DAYS`, default 14; credentials via `PGPASSFILE`/env)
    writes a `600` custom-format dump. It is not installed in cron; suggested daily entry:
    `15 3 * * * BACKUP_DIR=/var/backups/fateweave PGHOST=127.0.0.1 PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass /opt/fateweave/deploy/backup.sh`.
@@ -109,8 +114,8 @@ alternative for a host-level Nginx.
    (never put the key itself on a command line or in shell history); edit `/etc/fateweave/fateweave.env` (as root, keep mode
    600) and replace the `FATEWEAVE_MCP_KEY=` value; restart so the container reads the env file again:
    `docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d --force-recreate`; then update the
-   `X-Fateweave-Key` header value in the Claude connector settings. The old key stops working as soon as the container
-   is recreated; check with the no-key/old-key `401` and new-key `tools/list` items in `scripts/acceptance.md`.
+   connector URL (`https://<host>/mcp/<key>`) or the `X-Fateweave-Key` header value in the client settings. The old key
+   stops working as soon as the container is recreated; check with the no-key/old-key `401` and new-key `tools/list` items in `scripts/acceptance.md`.
 8. **Rollback:** app only: `git checkout <previous-tag>`, rebuild and `up -d`. Failed deploy: `docker compose -p fateweave -f deploy/compose.fateweave.yaml down`
    (other services are untouched; remove the Nginx vhost and reload to unpublish). Schema: migrations are forward-compatible
    in 0001; to revert a bad migration, restore the pre-deploy dump (take `backup.sh` before every migration) rather than

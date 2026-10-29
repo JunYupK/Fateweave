@@ -61,9 +61,10 @@ def initialize_payload() -> dict:
 class MCPClient:
     """Minimal MCP client: initialize handshake, then JSON-RPC requests on the session."""
 
-    def __init__(self, http: httpx.AsyncClient, key: str | None = MCP_KEY):
+    def __init__(self, http: httpx.AsyncClient, key: str | None = MCP_KEY, path: str = "/mcp"):
         self.http = http
         self.key = key
+        self.path = path
         self.session_id: str | None = None
         self._next_id = 0
 
@@ -78,7 +79,7 @@ class MCPClient:
         return h
 
     async def post(self, payload: dict, **extra_headers: str) -> httpx.Response:
-        return await self.http.post("/mcp", json=payload, headers=self.headers(**extra_headers))
+        return await self.http.post(self.path, json=payload, headers=self.headers(**extra_headers))
 
     async def initialize(self) -> dict:
         resp = await self.post(initialize_payload())

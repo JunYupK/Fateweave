@@ -78,6 +78,43 @@ async def test_missing_or_wrong_key_denied():
         assert resp.status_code in (200, 405)
 
 
+async def test_key_in_path_authorizes_without_header():
+    async with running_app() as http:
+        client = MCPClient(http, key=None, path=f"/mcp/{MCP_KEY}")
+        await client.initialize()
+        tools = (await client.request("tools/list"))["tools"]
+        assert len(tools) == 5
+        # the same endpoint: the header form works alongside it
+        assert len((await MCPClient(http).request("tools/list"))["tools"]) == 5
+
+
+async def test_wrong_key_in_path_is_plain_404():
+    async with running_app() as http:
+        anon = MCPClient(http, key=None)
+        for token in (MCP_KEY + "x", MCP_KEY[:-1], MCP_KEY.upper(), "mcp", "%20"):
+            resp = await http.post(
+                f"/mcp/{token}", json=initialize_payload(), headers=anon.headers()
+            )
+            assert resp.status_code == 404, token
+            assert resp.text == "Not Found"
+            assert "location" not in resp.headers
+            assert "mcp-session-id" not in resp.headers
+        # a valid header does not rescue a wrong path key, and extra segments never match
+        resp = await http.post(
+            f"/mcp/{MCP_KEY}x", json=initialize_payload(), headers=MCPClient(http).headers()
+        )
+        assert resp.status_code == 404
+        resp = await http.post(
+            f"/mcp/{MCP_KEY}/mcp", json=initialize_payload(), headers=anon.headers()
+        )
+        assert resp.status_code == 404
+        # the host allowlist still applies to the key-in-path form
+        resp = await MCPClient(http, key=None, path=f"/mcp/{MCP_KEY}").post(
+            initialize_payload(), host="evil.example"
+        )
+        assert resp.status_code in (400, 403, 421)
+
+
 async def test_restart_does_not_break_connected_clients():
     """A client initialized against one process keeps working after a restart (new process)."""
     async with running_app() as http:
@@ -191,6 +228,31 @@ def test_redaction_filter_scrubs_key_from_any_record():
     )
     flt.filter(header)
     assert "other-value" not in header.getMessage()
+    in_path = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", "POST", f"/mcp/{MCP_KEY}", "1.1", 200),
+        None,
+    )
+    assert flt.filter(in_path)
+    assert in_path.getMessage() == '127.0.0.1:5000 - "POST /mcp/[REDACTED] HTTP/1.1" 200'
+    # a near-miss key in the path (one character off) is scrubbed too, not only the exact key
+    near = MCP_KEY[:-1] + ("A" if MCP_KEY[-1] != "A" else "B")
+    near_miss = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:5000", "POST", f"/mcp/{near}", "1.1", 404),
+        None,
+    )
+    assert flt.filter(near_miss)
+    assert near_miss.getMessage() == '127.0.0.1:5000 - "POST /mcp/[REDACTED] HTTP/1.1" 404'
+    assert MCP_KEY[:-1] not in near_miss.getMessage()
 
 
 def test_direct_app_port_not_public_in_test_config(monkeypatch):

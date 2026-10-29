@@ -88,6 +88,18 @@ main() {
     }
 
     git fetch --quiet origin
+    # Never overwrite work that exists only on the VM: the running checkout must be a commit on
+    # origin/master with no local edits. (A local, unpushed branch was once deployed over this way
+    # and its feature silently disappeared.)
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "the checkout in $DIR has local changes; commit and push them (or discard) first" >&2
+        exit 7
+    fi
+    if ! git merge-base --is-ancestor HEAD "$BRANCH"; then
+        echo "the running checkout $(git rev-parse --short HEAD) is not on $BRANCH (local commits?);" \
+            "push them through a PR first, or check out a $BRANCH commit deliberately" >&2
+        exit 7
+    fi
     if ! git merge-base --is-ancestor "$REF" "$BRANCH"; then
         echo "commit $REF is not on $BRANCH; refusing to deploy" >&2
         exit 4
