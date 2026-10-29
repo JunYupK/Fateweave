@@ -73,7 +73,7 @@ class MCPClient:
             h["x-fateweave-key"] = self.key
         if self.session_id is not None:
             h["mcp-session-id"] = self.session_id
-            h["mcp-protocol-version"] = PROTOCOL_VERSION
+        h["mcp-protocol-version"] = PROTOCOL_VERSION
         h.update(extra)
         return h
 
@@ -83,7 +83,8 @@ class MCPClient:
     async def initialize(self) -> dict:
         resp = await self.post(initialize_payload())
         assert resp.status_code == 200, resp.status_code
-        self.session_id = resp.headers["mcp-session-id"]
+        # Stateless server: no session id is issued (requests are independent).
+        self.session_id = resp.headers.get("mcp-session-id")
         result = parse_body(resp)["result"]
         ack = await self.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
         assert ack.status_code == 202, ack.status_code

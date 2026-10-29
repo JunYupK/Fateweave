@@ -11,6 +11,7 @@ from mcp_http import (
     MCPClient,
     initialize_payload,
     mcp_settings,
+    parse_body,
     running_app,
     services_for,
 )
@@ -55,7 +56,7 @@ async def test_missing_or_wrong_key_denied():
 
         ok = MCPClient(http)
         await ok.initialize()
-        sid = ok.session_id
+        sid = ok.session_id or "any-session-id"
         for method in ("GET", "DELETE"):
             resp = await http.request(
                 method,
@@ -72,8 +73,24 @@ async def test_missing_or_wrong_key_denied():
         # the authenticated session still works afterwards
         tools = (await ok.request("tools/list"))["tools"]
         assert len(tools) == 5
+        # Stateless transport: there is no session to delete.
         resp = await http.delete("/mcp", headers=ok.headers())
-        assert resp.status_code == 200
+        assert resp.status_code in (200, 405)
+
+
+async def test_restart_does_not_break_connected_clients():
+    """A client initialized against one process keeps working after a restart (new process)."""
+    async with running_app() as http:
+        client = MCPClient(http)
+        await client.initialize()
+        assert client.session_id is None  # stateless: nothing for a restart to invalidate
+        headers = client.headers()
+    async with running_app() as http:  # e.g. the container was recreated by a deploy
+        resp = await http.post(
+            "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, headers=headers
+        )
+        assert resp.status_code == 200, resp.status_code
+        assert len(parse_body(resp)["result"]["tools"]) == 5
 
 
 async def test_nonlisted_host_denied():

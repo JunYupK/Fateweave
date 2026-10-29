@@ -63,8 +63,12 @@ def create_app(
                 svc = ServiceContainer(analysis=AnalysisService(sm), reports=ReportService(sm))
             server = create_mcp_server(svc)
             # The SDK app routes exactly MCP_PATH; it is served from our single `/mcp` route.
+            # Stateless: the tools keep no per-session state, and in-memory sessions would be lost
+            # on every container restart (each deploy), leaving connectors with a dead session id.
             mcp_app = server.streamable_http_app(
-                streamable_http_path=MCP_PATH, transport_security=transport_security(cfg)
+                streamable_http_path=MCP_PATH,
+                transport_security=transport_security(cfg),
+                stateless_http=True,
             )
             stack.enter_context(log_hygiene(cfg.mcp_key))
             await stack.enter_async_context(server.session_manager.run())
