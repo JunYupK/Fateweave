@@ -1,7 +1,8 @@
 # Fateweave API, run alongside existing services on the shared VM.
 #   docker compose -p fateweave -f deploy/compose.fateweave.yaml up -d --build
 # Isolation rules: no Postgres service here (uses the EXISTING instance with the dedicated
-# fateweave_app role), no shared networks, host port bound to 127.0.0.1 only.
+# fateweave_app role), host port bound to 127.0.0.1 only. The one shared network is the VM's TLS
+# edge (flight-friend's Caddy `frontend` network), joined so Caddy can reach `fateweave-api:8080`.
 name: fateweave
 
 services:
@@ -31,6 +32,9 @@ services:
     #   postgresql+asyncpg://fateweave_app:PW@host.docker.internal:5432/fateweave
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - edge
     healthcheck:
       test:
         - CMD
@@ -56,3 +60,10 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+networks:
+  # Declared here (not attached by hand with `docker network connect`) so it survives every
+  # container recreation. Override the name with FATEWEAVE_EDGE_NETWORK if the edge proxy moves.
+  edge:
+    external: true
+    name: ${FATEWEAVE_EDGE_NETWORK:-my-flight-friend_frontend}

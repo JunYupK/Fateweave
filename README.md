@@ -53,8 +53,15 @@ never touches the database in your environment.
 
 Files live in `deploy/`; live acceptance checks are in `scripts/acceptance.md`. Fateweave runs as one
 container (`fateweave-api`, compose project `fateweave`) next to existing services. It uses the
-existing PostgreSQL instance (no Postgres service in compose), no shared Docker networks, and
-publishes only `127.0.0.1:8080`; host Nginx terminates TLS.
+existing PostgreSQL instance (no Postgres service in compose) and publishes only `127.0.0.1:8080`.
+**On the current VM, TLS is terminated by flight-friend's Caddy container**, which proxies
+`fateweave.flight-friend.com` to `fateweave-api:8080`; compose joins `fateweave-api` to Caddy's
+`my-flight-friend_frontend` network (`edge`, external; override with `FATEWEAVE_EDGE_NETWORK`).
+Never attach it by hand with `docker network connect`: a manual attachment is lost whenever the
+container is recreated (every deploy), and Caddy then answers 502. After a restart `deploy.sh`
+reloads Caddy (`FATEWEAVE_EDGE_PROXY`, default `my-flight-friend-caddy-1`) and checks
+`https://$FATEWEAVE_PUBLIC_HOST/healthz` through it. The Nginx vhost in `deploy/` is the
+alternative for a host-level Nginx.
 
 1. **Database (DBA, once):** `psql -X -v ON_ERROR_STOP=1 -v owner_pw=... -v app_pw=... -d postgres -f deploy/postgres-init.sql`
    creates `fateweave_owner` (migrations + admin purge) and `fateweave_app` (runtime, DML only; no DELETE,

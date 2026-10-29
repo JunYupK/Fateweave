@@ -14,6 +14,9 @@
 #                            PGUSER=fateweave_owner PGPASSFILE=/etc/fateweave/pgpass
 #                          The runtime app credentials stay in /etc/fateweave/fateweave.env.
 #   HEALTH_TIMEOUT         seconds to wait for a healthy container (default 120)
+#   FATEWEAVE_EDGE_PROXY   container of the VM's TLS edge proxy (default my-flight-friend-caddy-1).
+#                          After a restart it is reloaded so it re-resolves fateweave-api, then
+#                          https://$FATEWEAVE_PUBLIC_HOST/healthz is checked through it.
 #
 # The commit must be reachable from origin/master. On a failed health check the previous commit
 # is rebuilt and restarted. The schema is not rolled back (migrations are forward-compatible;
@@ -55,6 +58,35 @@ main() {
         return 1
     }
 
+    # The public path is edge proxy (Caddy, another compose project) -> fateweave-api:8080 on the
+    # shared edge network. A recreated container gets a new IP that Caddy may not re-resolve, so
+    # reload it (graceful, --force even with an unchanged config) and check the domain end to end.
+    check_edge() {
+        local proxy="${FATEWEAVE_EDGE_PROXY:-my-flight-friend-caddy-1}" host
+        host=$(grep -E '^FATEWEAVE_PUBLIC_HOST=' "${FATEWEAVE_ENV_FILE:-/etc/fateweave/fateweave.env}" \
+            | head -1 | cut -d= -f2- | tr -d "\"'" || true)
+        if docker inspect "$proxy" >/dev/null 2>&1; then
+            docker exec "$proxy" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile --force --address 127.0.0.1:2019 \
+                >/dev/null 2>&1 || echo "warning: could not reload $proxy" >&2
+        else
+            echo "warning: edge proxy container $proxy not found; skipping reload" >&2
+        fi
+        if [ -z "$host" ]; then
+            echo "warning: FATEWEAVE_PUBLIC_HOST not found; skipping the public check" >&2
+            return 0
+        fi
+        for _ in 1 2 3 4 5 6 7 8; do
+            if curl -fsS -o /dev/null --max-time 5 --resolve "$host:443:127.0.0.1" "https://$host/healthz"; then
+                echo "public path ok: https://$host/healthz"
+                return 0
+            fi
+            sleep 5
+        done
+        echo "error: https://$host/healthz fails through the edge proxy although the container is" \
+            "healthy; check that $proxy reaches fateweave-api:8080 on the edge network" >&2
+        return 6
+    }
+
     git fetch --quiet origin
     if ! git merge-base --is-ancestor "$REF" "$BRANCH"; then
         echo "commit $REF is not on $BRANCH; refusing to deploy" >&2
@@ -92,7 +124,8 @@ main() {
     compose up -d
     if wait_healthy; then
         echo "deployed $REF: healthy"
-        exit 0
+        check_edge
+        exit $?
     fi
 
     echo "health check failed for $REF; rolling the app back to $previous" >&2
