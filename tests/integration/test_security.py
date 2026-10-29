@@ -79,6 +79,7 @@ async def test_missing_or_wrong_key_denied():
 
 
 async def test_key_in_path_authorizes_without_header():
+    # Contract: the Claude connector authenticates ONLY this way (no custom headers). See CLAUDE.md.
     async with running_app() as http:
         client = MCPClient(http, key=None, path=f"/mcp/{MCP_KEY}")
         await client.initialize()

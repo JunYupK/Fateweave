@@ -60,8 +60,16 @@ existing PostgreSQL instance (no Postgres service in compose) and publishes only
 Never attach it by hand with `docker network connect`: a manual attachment is lost whenever the
 container is recreated (every deploy), and Caddy then answers 502. After a restart `deploy.sh`
 reloads Caddy (`FATEWEAVE_EDGE_PROXY`, default `my-flight-friend-caddy-1`) and checks
-`https://$FATEWEAVE_PUBLIC_HOST/healthz` through it. The Nginx vhost in `deploy/` is the
-alternative for a host-level Nginx.
+`https://$FATEWEAVE_PUBLIC_HOST/healthz` through it. The Caddy site block's source of truth is
+`deploy/caddy-fateweave.caddy` (copy it into `~/my-flight-friend/Caddyfile`); the Nginx vhost in
+`deploy/` is the alternative for a host-level Nginx.
+
+> **Claude connector authentication — the secret key is in the URL path.** The connector URL is
+> `https://fateweave.flight-friend.com/mcp/<FATEWEAVE_MCP_KEY>` because Claude custom connectors
+> cannot send the `X-Fateweave-Key` header. The key-in-path route must stay, the edge proxy must
+> forward `/mcp/<key>`, and every deploy checks that URL end to end (MCP `initialize` must answer
+> 200). Never put the key or the connector URL in code, logs, PRs or chat; read it on the VM with
+> `sudo grep '^FATEWEAVE_MCP_KEY=' /etc/fateweave/fateweave.env | cut -d= -f2-`. See `CLAUDE.md`.
 
 1. **Database (DBA, once):** `psql -X -v ON_ERROR_STOP=1 -v owner_pw=... -v app_pw=... -d postgres -f deploy/postgres-init.sql`
    creates `fateweave_owner` (migrations + admin purge) and `fateweave_app` (runtime, DML only; no DELETE,

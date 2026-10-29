@@ -1,0 +1,33 @@
+# Fateweave site block for the VM's edge proxy (flight-friend's Caddy, my-flight-friend repo).
+# Source of truth for the block in ~/my-flight-friend/Caddyfile; keep the two identical.
+#
+# - Upstream by container name: compose joins fateweave-api to Caddy's my-flight-friend_frontend
+#   network (deploy/compose.fateweave.yaml, network `edge`). Never use the bridge gateway IP:
+#   the app port is published on 127.0.0.1 only, so Caddy answers 502.
+# - /mcp/<key> MUST be forwarded: the Claude connector authenticates with the key in the URL path
+#   because it cannot send the X-Fateweave-Key header. The key is 32-128 URL-safe characters.
+# - No `log` directive on purpose: no access log, so neither the key in the path nor the
+#   X-Fateweave-Key header is ever written.
+# - Exact /mcp, /mcp/<key> and /healthz only; everything else 404.
+fateweave.flight-friend.com {
+	request_body {
+		max_size 1MB
+	}
+	@mcp path_regexp ^/mcp(/[A-Za-z0-9_-]{32,128})?$
+	handle @mcp {
+		reverse_proxy fateweave-api:8080 {
+			flush_interval -1
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+	@healthz path /healthz
+	handle @healthz {
+		reverse_proxy fateweave-api:8080
+	}
+	handle {
+		respond 404
+	}
+}
