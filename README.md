@@ -24,10 +24,10 @@ Env vars / 환경변수: `FATEWEAVE_DATABASE_URL`, `FATEWEAVE_MCP_KEY`, `FATEWEA
 - 출생시간 미상: `hour_pillar = null`이며 임의 시각을 확정 결과로 저장하지 않는다. 그 날짜 전체를 검토해 자정·절기 경계로 연·월·일주가 달라질 수 있으면 `PARTIAL` + 대안 명식 + `BOUNDARY_REVIEW_REQUIRED` 경고를 낸다.
 - 독립 검증 근거와 출처: `tests/fixtures/verified_manse_cases.json`.
 
-## 해석 규칙 rules-v2 / Interpretation rules
+## 해석 규칙 rules-v3 / Interpretation rules
 
 - 근거(evidence)의 `operands`는 한자(검증·ID용), `text_ko`는 한글. claim의 `computed_values`는 한자·한글 표기 모두 허용.
-- 개인: 사주 네 기둥·십성·지장간·12운성(화토동법), 배우자궁·배우자성(남 재성, 여 관성), 표면/지장간 오행, 신강약(korean-saju 10점제, 시 미상이면 아는 8점을 10점으로 환산), 억부·조후 용신 *후보*, 지지 합충형파해·원진·귀문, 천간합충, 신살(도화·역마·화개·홍염·천을귀인·양인·고신·과숙·백호·괴강·고란·음양차착), 공망, 격국.
+- 개인: 사주 네 기둥·십성·지장간·12운성(화토동법), 배우자궁·배우자성(남 재성, 여 관성), 표면/지장간 오행, 신강약 2개 관법(korean-saju 10점제 — 시 미상이면 아는 8점을 10점으로 환산; Fateweave `rooted_seasonal_v1` — 월령 왕상휴수사 30, 일지 통근 15, 연·시지 통근 각 10, 비겁·인성 천간 각 10, 지장간 본기 1.0·중기 0.6·여기 0.3, 인성 뿌리 ×0.8)과 종합 판정(판정이 갈리면 `divergent`, 억부·시기 단서는 통근·월령 판정을 따름), 외격 16종 판정(`SPECIAL_STRUCTURE`, 성립 없음 = 정격), 억부·조후 용신 *후보*, 지지 합충형파해·원진·귀문, 천간합충, 신살(도화·역마·화개·홍염·천을귀인·양인·고신·과숙·백호·괴강·고란·음양차착), 공망, 격국.
 - 결혼 시기(`domain/timing.py`): `DAEWOON_FLOW`(대운별 십성·원국 관계·단서), `YEAR_TIMING`(연도별 단서·주의·순위), `MONTH_TIMING`(상위 3개 연도의 월별 단서). 단서는 배우자성, 일간합, 배우자궁 육합·삼합, 도화·홍염, 대운 배우자성 등 전통 규칙에 이름을 붙인 것이며 예측이 아니다. 순위는 핵심 단서 개수 순서일 뿐 가능성이 아니다.
 - 커플: 일간 오행 관계, 서로의 배우자성 여부, 오행 보완, `COUPLE_TIMING`(연도별 두 사람 단서와 공동 순위), 대운 겹침.
 - 리포트(`domain/guide.py`): 섹션별 다룰 내용과 최소 분량을 `prepare_analysis` 응답의 `writing_guide`로 내려주고, 검증에서 `SECTION_TOO_SHORT`·`HANJA_HEAVY`(섹션 한자 5% 초과)·timing claim 누락을 거절한다. rules-v1로 준비된 분석은 기존 8개(커플 6개) 섹션 규칙을 그대로 쓴다.

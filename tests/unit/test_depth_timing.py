@@ -125,5 +125,70 @@ def test_chart_depth(known):
         "visible"
     ]
     assert depth.strength(known)["level"] == "中和"
-    assert depth.eokbu(known)["elements"] == []
+    # rules-v3: 억부 follows the rooted method (身弱), so 印星·比劫 = 木·火.
+    assert depth.eokbu(known)["elements"] == ["木", "火"]
     assert depth.johu(known)["elements"] == ["火"]
+
+
+# --- rules-v3: rooted/seasonal strength, divergence, special structures -------------------
+
+
+@pytest.fixture(scope="module")
+def eul_mi() -> ChartSnapshot:
+    # 戊寅 戊午 乙未 辛巳: 乙 wood rooted in 寅 (甲 本氣) and 未 (乙 中氣), summer month.
+    birth = normalize_birth(
+        BirthProfileInput(
+            birth_date="1998-06-17",
+            calendar="solar",
+            birth_time=time(11, 27),
+            gender_for_daewoon="male",
+            longitude=126.83,
+        )
+    )
+    return compute_chart(birth, sewoon_start_year=2026, sewoon_years=10)
+
+
+def test_rooted_strength_counts_hidden_stem_roots(eul_mi):
+    r = depth.strength_rooted(eul_mi)
+    assert r["method"] == "rooted_seasonal_v1"
+    # 午 month: 乙 wood feeds fire (休 0.3 x 30 = 9); 未 中氣 乙 (0.6 x 15 = 9); 寅 本氣 甲
+    # (1.0 x 10 = 10); 巳 and the stems 戊戊辛 give nothing -> 28 of 95.
+    assert r["components"] == {
+        "season": 9.0,
+        "day_branch": 9.0,
+        "year_branch": 10.0,
+        "hour_branch": 0.0,
+        "stems": 0.0,
+    }
+    assert r["max_points"] == 95.0
+    assert r["percent"] == 29.5
+    assert r["level"] == "身弱"
+    # The library's surface-element score calls the same chart 極身弱.
+    assert depth.strength(eul_mi)["level"] == "極身弱"
+
+
+def test_strength_consensus_flags_divergence(eul_mi, known):
+    c = depth.strength_consensus(eul_mi)
+    assert c["divergent"] is True
+    assert c["levels"] == {"ilgan_strength_10pt": "極身弱", "rooted_seasonal_v1": "身弱"}
+    assert c["primary"] == "rooted_seasonal_v1" and c["level"] == "身弱"
+    # 1990-01-01 丙寅 day in 子 month: library 中和 (4.5/10) vs rooted 身弱 (42 of 95).
+    k = depth.strength_consensus(known)
+    assert k["levels"] == {"ilgan_strength_10pt": "中和", "rooted_seasonal_v1": "身弱"}
+    assert k["divergent"] is True
+    # 억부 candidates follow the primary (rooted) judgement.
+    assert depth.eokbu(known)["strength_level"] == "身弱"
+    assert depth.eokbu(known)["elements"] == ["木", "火"]
+
+
+def test_rooted_strength_without_hour_rescales(eul_mi):
+    no_hour = eul_mi.model_copy(update={"hour_pillar": None})
+    r = depth.strength_rooted(no_hour)
+    assert r["max_points"] == 75.0 and "hour_branch" not in r["components"]
+    assert r["percent"] == round(28 / 75 * 100, 1)
+
+
+def test_special_structures_reported(eul_mi):
+    s = depth.special_structures(eul_mi)
+    assert s["checked"] == 16
+    assert s["accepted"] == []  # 정격: no 從格/化氣格 holds, so none may be read into it
