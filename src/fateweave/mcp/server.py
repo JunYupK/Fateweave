@@ -62,7 +62,9 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
 (YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), 배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, \
 학파 의존 판단은 방법론을 밝힌다. 외격이 성립하지 않으면 종격 해석을 하지 않는다.
    - 결혼 시기: DAEWOON_FLOW로 10년 구간을, YEAR_TIMING(커플은 COUPLE_TIMING)으로 연도별 \
-표와 순위 상위 연도를, MONTH_TIMING으로 유력 월을 구체적으로 쓴다. 해당 timing evidence를 \
+표와 신호 점수 순위를, MONTH_TIMING으로 유력 월을, LIFE_TIMING으로 20~50세 대운별 상위 연도를 \
+구체적으로 쓴다. 커플의 공통 유리 시기는 COUPLE_TIMING_OVERLAP·COUPLE_LIFE_TIMING의 후보만 \
+제시하고, 후보가 없으면 없다고 쓴다. 신호 점수는 확률이 아니다. 해당 timing evidence를 \
 인용하는 claim이 최소 1개 필요하다.
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
 `computed_values`에 해당 evidence `operands`의 값을 그대로 적는다 (한자·한글 표기 모두 허용).

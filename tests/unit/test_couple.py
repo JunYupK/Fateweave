@@ -134,30 +134,47 @@ def timing_rows(evidence: list[Evidence]) -> dict[int, Evidence]:
     return {e.operands["year"]: e for e in by_rule(evidence, "COUPLE_TIMING")}
 
 
+def _qualifies(e: Evidence) -> bool:
+    entries = e.operands["entries"]
+    return all(x["core_count"] > 0 for x in entries) and not any(
+        "PALACE_CHUNG" in x["cautions"] for x in entries
+    )
+
+
 def test_couple_timing_records_every_year(jia, gui):
     # Snapshot sewoon covers 2026-2028 only; later years come from 60-cycle arithmetic.
-    rows = timing_rows(build_couple_evidence(jia, gui, 2026, years=10))
+    evidence = build_couple_evidence(jia, gui, 2026, years=10)
+    rows = timing_rows(evidence)
     assert sorted(rows) == list(range(2026, 2036))
     # 2028 戊申: 戊 is 甲(male)'s 偏財 and 癸(female)'s 正官 — both carry a spouse-star cue.
     e2028 = rows[2028]
     assert e2028.operands["year_pillar"] == "戊申"
-    assert e2028.operands["both_core"] is True
     for entry in e2028.operands["entries"]:
         assert "SPOUSE_STAR_STEM" in entry["cues"]
+        assert isinstance(entry["signal"], int)
     assert sorted(e["day_pillar"] for e in e2028.operands["entries"]) == ["甲戌", "癸未"]
-    # Joint ranks are a permutation, and years where both carry core cues come first.
-    ranks = {y: e.operands["joint_rank"] for y, e in rows.items()}
-    assert sorted(ranks.values()) == list(range(1, 11))
-    both = [y for y, e in rows.items() if e.operands["both_core"]]
-    assert both and max(ranks[y] for y in both) < min(
-        ranks[y] for y in rows if y not in both
-    )
+    # Candidate = both have a core cue and neither has a spouse-palace clash; ranks are
+    # 1..n over the candidates only, ordered by the lower signal.
     for e in rows.values():
+        assert e.operands["candidate"] == _qualifies(e), e.operands["year"]
+        assert (e.operands["candidate_rank"] is None) == (not e.operands["candidate"])
         assert TIMING_ASSUMPTION in e.assumptions
         assert ID_RE.match(e.id)["subject"] == "AB"
         assert "COUPLE_TIMING" in e.source_ref
         assert not re.search(r"[\u4e00-\u9fff]", e.text_ko), e.text_ko
-        assert e.operands["both_core"] == all(x["core_count"] > 0 for x in e.operands["entries"])
+    ranked = sorted(
+        (e for e in rows.values() if e.operands["candidate"]),
+        key=lambda e: e.operands["candidate_rank"],
+    )
+    assert [e.operands["candidate_rank"] for e in ranked] == list(range(1, len(ranked) + 1))
+    lows = [min(x["signal"] for x in e.operands["entries"]) for e in ranked]
+    assert lows == sorted(lows, reverse=True)
+    # The window summary lists exactly those candidates, in that order.
+    (summary,) = by_rule(evidence, "COUPLE_TIMING_OVERLAP")
+    assert [c["year"] for c in summary.operands["candidates"]] == [
+        e.operands["year"] for e in ranked
+    ]
+    assert (summary.operands["no_candidate_reason"] is None) == bool(ranked)
     # A narrower window lists only its own years.
     narrow = timing_rows(build_couple_evidence(jia, gui, 2029, years=1))
     assert list(narrow) == [2029]
@@ -171,7 +188,19 @@ def test_couple_timing_spouse_palace_hap():
     rows = timing_rows(build_couple_evidence(a, b, 2030, years=10))
     for entry in rows[2035].operands["entries"]:
         assert "SPOUSE_PALACE_HAP" in entry["cues"]
-    assert rows[2035].operands["both_core"] is True
+    assert rows[2035].operands["candidate"] is True
+
+
+def test_couple_life_timing_summary(jia, gui):
+    evidence = build_couple_evidence(jia, gui, 2026, years=3)
+    (life,) = by_rule(evidence, "COUPLE_LIFE_TIMING")
+    assert (life.operands["from_year"], life.operands["to_year"]) == (2010, 2040)
+    assert life.operands["ages"] == [20, 50]
+    assert len(life.operands["candidates"]) <= 5
+    for c in life.operands["candidates"]:
+        assert c["signals"] == sorted(c["signals"])  # order independent
+    swapped = by_rule(build_couple_evidence(gui, jia, 2026, years=3), "COUPLE_LIFE_TIMING")
+    assert swapped[0].id == life.id
 
 
 def test_couple_extra_pair_rules(jia, gui):

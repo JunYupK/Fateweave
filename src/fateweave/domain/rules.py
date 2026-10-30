@@ -18,8 +18,10 @@ the same catalog (same IDs, same digest). `operands` keep hanja (machine-checked
 - SINSAL (桃花, 驛馬, 華蓋, 紅艶, 天乙貴人, 羊刃, 孤辰, 寡宿, 白虎, 魁罡, 孤鸞, 陰陽差錯) and
   GONGMANG (旬空 by the day pillar). 半合 is not listed as a relation.
 - GYEOKGUK: korean-saju's GyeokgukCalculator, only when the hour is known.
-- DAEWOON_FLOW, YEAR_TIMING, MONTH_TIMING: marriage-timing cues (timing.py) for every daewoon,
-  every sewoon year in the snapshot, and the months of the three top-ranked years.
+- DAEWOON_FLOW, YEAR_TIMING, MONTH_TIMING: marriage-timing cues (domain/timing) for every
+  daewoon, every sewoon year in the snapshot (with the timing-score-v1 signal and rank), and
+  the months of the three top-ranked years. LIFE_TIMING: per daewoon decade inside ages
+  20-50, the years with the highest positive signal.
 
 Unknown hour: nothing references the hour pillar. PARTIAL charts: items whose operands depend
 on a pillar that differs in an alternative carry BOUNDARY_ASSUMPTION.
@@ -65,6 +67,7 @@ RULE_ORDER: tuple[str, ...] = (
     "SEWOON",
     "YEAR_TIMING",
     "MONTH_TIMING",
+    "LIFE_TIMING",
 )
 BOUNDARY_ASSUMPTION = "depends on primary pillar set; alternatives exist (BOUNDARY_REVIEW_REQUIRED)"
 DAEWOON_PRIMARY_ONLY = "computed for primary pillar set only"
@@ -659,8 +662,9 @@ def _year_timing_rule(chart: ChartSnapshot) -> list[_Draft]:
             _Draft(
                 kind="rule_derived",
                 operands=row,
-                text_ko=f"{row['year']}년 {_ko(row['pillar'])} (순위 {row['rank']}, 핵심 단서 "
-                f"{row['core_count']}개 / 전체 {row['cue_count']}개): 천간 "
+                text_ko=f"{row['year']}년 {_ko(row['pillar'])} (순위 {row['rank']}, 신호 "
+                f"{row['signal']}, 핵심 단서 {row['core_count']}개 / 전체 "
+                f"{row['cue_count']}개): 천간 "
                 f"{_ko(row['stem_ten_god'])}, 지지 {_ko(row['branch_ten_god'])}, 대운 "
                 f"{_daewoon_ko(row['daewoon'])}. 원국 관계: {rel}. 결혼 단서: "
                 f"{timing.cues_ko(row['cues'])}. 주의: {timing.cues_ko(row['cautions'])}",
@@ -711,6 +715,33 @@ def _month_timing_rule(chart: ChartSnapshot) -> list[_Draft]:
     return drafts
 
 
+def _life_timing_rule(chart: ChartSnapshot) -> list[_Draft]:
+    low, high = timing.LIFE_AGES
+    drafts = []
+    for block in timing.life_summary(chart):
+        years = ", ".join(
+            f"{y['year']}년 {_ko(y['pillar'])}(신호 {y['signal']}: {timing.cues_ko(y['cues'])})"
+            for y in block["top_years"]
+        )
+        drafts.append(
+            _Draft(
+                kind="rule_derived",
+                operands={**block, "ages": [low, high]},
+                text_ko=f"대운 {block['index'] + 1} {_ko(block['daewoon'])} "
+                f"({block['from_age']}~{block['to_age']}세)의 결혼 신호 상위 연도: "
+                + (years or "신호가 양수인 해 없음"),
+                source_ref=_rules_ref("LIFE_TIMING"),
+                depends=frozenset(_pillars(chart)),
+                assumptions=(
+                    timing.TIMING_ASSUMPTION,
+                    timing.RANK_ASSUMPTION,
+                    *_daewoon_assumptions(chart),
+                ),
+            )
+        )
+    return drafts
+
+
 RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     "PILLARS": _pillar_rule,
     "TEN_GODS": _ten_gods_rule,
@@ -733,6 +764,7 @@ RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     "SEWOON": _sewoon_rule,
     "YEAR_TIMING": _year_timing_rule,
     "MONTH_TIMING": _month_timing_rule,
+    "LIFE_TIMING": _life_timing_rule,
 }
 assert tuple(RULES) == RULE_ORDER
 
