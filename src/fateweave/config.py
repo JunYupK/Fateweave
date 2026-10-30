@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     MANSE_POLICY_VERSION: ClassVar[str] = "manse-v2"
-    RULE_VERSION: ClassVar[str] = "rules-v4"
+    RULE_VERSION: ClassVar[str] = "rules-v5"
     REPORT_SCHEMA_VERSION: ClassVar[str] = "report-v1"
 
     database_url: str

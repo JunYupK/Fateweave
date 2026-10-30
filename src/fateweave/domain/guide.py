@@ -116,7 +116,8 @@ COUPLE: tuple[Section, ...] = (
         "핵심 요약",
         300,
         600,
-        "두 사람 명식 소개, 궁합의 큰 그림(끌림·보완·마찰), 공동 순위 상위 연도와 핵심 조언.",
+        "두 사람 명식 소개, 궁합 지수(COMPAT_SCORE)와 등급, 궁합의 큰 그림(끌림·보완·마찰), "
+        "공통 유리 시기 후보 상위 연도와 핵심 조언.",
     ),
     Section(
         "personality_match",
@@ -131,6 +132,8 @@ COUPLE: tuple[Section, ...] = (
         "부부 궁합",
         700,
         1400,
+        "궁합 지수(COMPAT_SCORE)와 네 영역 점수(COMPAT_COMPONENT: 일간 관계·배우자궁·오행 "
+        "보완·전체 명식 조화)를 표로 제시하고, 영역마다 점수를 만든 근거를 풀어 쓴다. "
         "배우자궁(일지)끼리의 관계, 서로가 상대의 배우자성인지(COUPLE_SPOUSE_STAR_MATCH), "
         "천간합·육합 등 끌림 요소, 띠(연지) 관계. 결혼 후 어떤 부부가 되는지.",
     ),
@@ -206,6 +209,7 @@ LEGACY_REQUIRED: dict[str, tuple[str, ...]] = {
     ),
 }
 TIMING_RULES = {"individual": "YEAR_TIMING", "couple": "COUPLE_TIMING"}
+SCORE_RULE = "COMPAT_SCORE"
 MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters
 
 STYLE_RULES: tuple[str, ...] = (
@@ -229,6 +233,17 @@ STYLE_RULES: tuple[str, ...] = (
     "(시지 신살, 시주 십성 등)은 대안 시주에서는 어떻게 달라지는지도 짧게 덧붙인다.",
 )
 
+COUPLE_STYLE_RULES: tuple[str, ...] = (
+    "궁합 지수는 Fateweave 규칙표로 계산한 해석 지수(0~100)이지 결혼 확률·성사 가능성이 아니다. "
+    "'궁합 지수 N점'처럼 쓰고 숫자는 서버 값(COMPAT_SCORE·COMPAT_COMPONENT)을 그대로 옮긴다. "
+    "다른 숫자를 쓰면 SCORE_MISMATCH로 거절된다.",
+    "COMPAT_SCORE에 score_range가 있으면 대안 명식 범위로 함께 쓰고, status가 PARTIAL이거나 "
+    "영역이 REDUCED_SCOPE이면 무엇이 빠졌는지(assessments.compatibility.excluded) 한 번 밝힌다.",
+    "'공통 유리 시기', '최적의 해', '결혼 적기'로 제시하는 연도는 COUPLE_TIMING_OVERLAP·"
+    "COUPLE_LIFE_TIMING의 후보 연도만 쓴다. 후보가 아닌 해를 그렇게 쓰면 TIMING_NOT_CANDIDATE로 "
+    "거절된다. 후보가 아닌 해를 언급할 때는 '공통 후보 아님'처럼 분명히 구분한다.",
+)
+
 
 def required_sections(mode: str, rule_version: str) -> tuple[str, ...]:
     if rule_version == "rules-v1":
@@ -245,9 +260,10 @@ def section_labels() -> dict[str, str]:
 def writing_guide(mode: str) -> dict[str, Any]:
     """The guide returned with every rules-v2 prepare_analysis result."""
     sections = SECTIONS[mode]
-    return {
+    couple = mode == "couple"
+    guide: dict[str, Any] = {
         "sections": [s._asdict() for s in sections],
-        "style_rules": list(STYLE_RULES),
+        "style_rules": [*STYLE_RULES, *(COUPLE_STYLE_RULES if couple else ())],
         "minimum_total_chars": sum(s.min_chars for s in sections),
         "target_total_chars": sum(s.target_chars for s in sections),
         "required_timing_rule": TIMING_RULES[mode],
@@ -255,5 +271,14 @@ def writing_guide(mode: str) -> dict[str, Any]:
             "핵심 계산값(일주, 배우자궁, 신강약, 상위 연도 등)은 computed claim으로, 해석은 "
             f"interpretation claim으로 남긴다. {TIMING_RULES[mode]} evidence를 인용하는 claim이 "
             "최소 1개 필요하다."
+            + (
+                f" {SCORE_RULE} evidence를 인용하고 computed_values에 score를 적은 computed "
+                "claim도 1개 필요하다."
+                if couple
+                else ""
+            )
         ),
     }
+    if couple:
+        guide["required_score_rule"] = SCORE_RULE
+    return guide

@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fateweave.config import Settings
+from fateweave.domain.assessments import build_couple_assessments, scoring_versions
 from fateweave.domain.calendar import BirthInputError, normalize_birth
 from fateweave.domain.couple import build_couple_evidence
 from fateweave.domain.guide import writing_guide
@@ -131,10 +132,15 @@ class AnalysisService:
             ) from exc
 
         facts = dict(zip(keys, charts, strict=True))
+        assessments: dict[str, Any] = {}
         if mode == "individual":
             catalog: list[Evidence] = build_individual_evidence(charts[0], "self")
         else:
             catalog = build_couple_evidence(charts[0], charts[1], start_year, years=horizon_years)
+            assessments, scored = build_couple_assessments(
+                charts[0], charts[1], catalog, start_year, horizon_years
+            )
+            catalog = catalog + scored
 
         analysis_id = uuid.uuid4()
         prepared = PreparedAnalysis(
@@ -148,6 +154,8 @@ class AnalysisService:
             horizon_years=horizon_years,
             start_year=start_year,
             writing_guide=writing_guide(mode),
+            assessments=assessments,
+            scoring_versions=scoring_versions(mode),
         )
         snapshot = prepared.model_dump(mode="json", exclude={"analysis_id", "status"})
 

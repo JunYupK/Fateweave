@@ -66,6 +66,11 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
 구체적으로 쓴다. 커플의 공통 유리 시기는 COUPLE_TIMING_OVERLAP·COUPLE_LIFE_TIMING의 후보만 \
 제시하고, 후보가 없으면 없다고 쓴다. 신호 점수는 확률이 아니다. 해당 timing evidence를 \
 인용하는 claim이 최소 1개 필요하다.
+   - 궁합 지수(couple): 응답의 `assessments.compatibility`와 COMPAT_SCORE·COMPAT_COMPONENT \
+evidence로 총점·등급·네 영역 점수와 근거를 쓴다. 궁합 지수는 해석 지수이지 확률이 아니다. \
+COMPAT_SCORE를 인용하고 computed_values에 score를 적은 computed claim이 1개 필요하다. 본문의 \
+점수가 서버 값과 다르면 `SCORE_MISMATCH`, 공통 후보가 아닌 해를 공통 유리 시기·최적의 해로 \
+쓰면 `TIMING_NOT_CANDIDATE`가 된다.
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
 `computed_values`에 해당 evidence `operands`의 값을 그대로 적는다 (한자·한글 표기 모두 허용).
    - draft에는 `evidence_catalog`의 evidence ID를 인용하는 kind `computed` claim이 최소 1개 \

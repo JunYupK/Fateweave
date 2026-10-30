@@ -7,6 +7,7 @@ Only structured claims are machine-checked; free prose cannot be exhaustively fa
 import re
 from typing import Any
 
+from fateweave.domain.assessments import COMPONENT_KO
 from fateweave.domain.glossary import hanja_count, same_value
 from fateweave.domain.guide import MAX_HANJA_RATIO, SECTIONS, TIMING_RULES, required_sections
 from fateweave.models.facts import Evidence, PreparedAnalysis
@@ -29,6 +30,27 @@ PROBABILITY_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"|\d+(?:\.\d+)?\s*%[^\n]{0,15}?(?:확률|가능성)"
     ),
 )
+
+# rules-v5 (spec §8): quoted scores must be the server's, and years presented as the couple's
+# common favorable years must be overlap candidates. Prose checks are best-effort.
+SCORE_RULES = ("COMPAT_SCORE", "COMPAT_COMPONENT")
+CANDIDATE_RULES = ("COUPLE_TIMING_OVERLAP", "COUPLE_LIFE_TIMING")
+_NUMBER = (
+    r"(?:[은는이가:]\s*)?(?:총\s*)?(?:100\s*점\s*만점에?\s*)?(\d{1,3})\s*(?:점(?!\s*만점)|/\s*100)"
+)
+TOTAL_SCORE_PATTERN = re.compile(r"궁합\s*(?:지수|점수)\s*" + _NUMBER)
+COMPONENT_SCORE_PATTERNS = {
+    key: re.compile(re.escape(label) + r"\s*(?:영역\s*)?(?:점수|지수)?\s*" + _NUMBER)
+    for key, label in COMPONENT_KO.items()
+}
+FAVORABLE_YEAR_PATTERN = re.compile(
+    r"공통\s*(?:유리|후보)|두\s*사람\s*모두(?:에게)?\s*유리|최적의?\s*(?:해|시기|연도|결혼)"
+    r"|결혼\s*적기|가장\s*(?:좋은|유리한)\s*(?:해|시기|연도)"
+)
+_NEGATION = re.compile(r"아니|아님|않|없|제외|빠지|빠진|빠져|빠졌|못")
+_YEAR_RANGE = re.compile(r"(?:19|20)\d{2}\s*(?:년\s*)?[~\-–]\s*(?:(?:19|20)\d{2}|\d{2})")
+_YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)(?!\s*년?\s*생)")  # not "1990년생"
+_SENTENCE = re.compile(r"(?<=[.!?。])\s+|\n")
 
 _MISSING = object()
 
@@ -113,9 +135,10 @@ def _check_computed(
             if actual is _MISSING:
                 failures.append(_err("FACT_MISMATCH", f"key {key} not found in {ev.id}", path))
             elif not same_value(actual, claimed):
+                score = ev.rule_code in SCORE_RULES and key == "score"
                 failures.append(
                     _err(
-                        "FACT_MISMATCH",
+                        "SCORE_MISMATCH" if score else "FACT_MISMATCH",
                         f"key {key}: expected {actual}, claimed {claimed} ({ev.id})",
                         path,
                     )
@@ -174,6 +197,88 @@ def _check_depth(draft: ReportDraft) -> list[ValidationError]:
                     f"sections.{key}",
                 )
             )
+    return errors
+
+
+def _check_scores(
+    draft: ReportDraft, catalog: dict[str, Evidence], texts: list[tuple[str, str]]
+) -> list[ValidationError]:
+    """The couple index must be cited, and every quoted score must be the server's."""
+    total = next((e for e in catalog.values() if e.rule_code == "COMPAT_SCORE"), None)
+    if total is None:
+        return []
+    errors: list[ValidationError] = []
+    if not any(
+        c.kind == "computed"
+        and "score" in (c.computed_values or {})
+        and any(eid == total.id for eid in c.evidence_ids)
+        for c in draft.claims
+    ):
+        errors.append(
+            _err(
+                "UNSUPPORTED_CLAIM",
+                f"the couple report needs a computed claim citing {total.id} (COMPAT_SCORE) with "
+                "computed_values.score",
+                "claims",
+            )
+        )
+    allowed = {total.operands["score"], *(total.operands.get("score_range") or [])}
+    components = {
+        e.operands["component"]: e.operands["score"]
+        for e in catalog.values()
+        if e.rule_code == "COMPAT_COMPONENT"
+    }
+    for path, text in texts:
+        for m in TOTAL_SCORE_PATTERN.finditer(text):
+            if int(m.group(1)) not in allowed:
+                errors.append(
+                    _err(
+                        "SCORE_MISMATCH",
+                        f"quoted compatibility index {m.group(1)} is not the server value "
+                        f"{total.operands['score']}",
+                        path,
+                    )
+                )
+        for key, pattern in COMPONENT_SCORE_PATTERNS.items():
+            if key not in components:
+                continue
+            for m in pattern.finditer(text):
+                if int(m.group(1)) != components[key]:
+                    errors.append(
+                        _err(
+                            "SCORE_MISMATCH",
+                            f"quoted {key} score {m.group(1)} is not the server value "
+                            f"{components[key]}",
+                            path,
+                        )
+                    )
+    return errors
+
+
+def _check_candidate_years(
+    catalog: dict[str, Evidence], texts: list[tuple[str, str]]
+) -> list[ValidationError]:
+    """Years presented as common favorable (or best) years must be overlap candidates."""
+    sources = [e for e in catalog.values() if e.rule_code in CANDIDATE_RULES]
+    if not sources:
+        return []
+    candidates = {c["year"] for e in sources for c in e.operands.get("candidates", [])}
+    shown = ", ".join(str(y) for y in sorted(candidates)) or "none"
+    errors: list[ValidationError] = []
+    for path, text in texts:
+        for sentence in _SENTENCE.split(text):
+            if not FAVORABLE_YEAR_PATTERN.search(sentence) or _NEGATION.search(sentence):
+                continue
+            for year in _YEAR.findall(_YEAR_RANGE.sub(" ", sentence)):
+                if int(year) not in candidates:
+                    errors.append(
+                        _err(
+                            "TIMING_NOT_CANDIDATE",
+                            f"{year} is presented as a common favorable year but is not a "
+                            f"COUPLE_TIMING_OVERLAP/COUPLE_LIFE_TIMING candidate ({shown})",
+                            path,
+                        )
+                    )
     return errors
 
 
@@ -238,10 +343,14 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
 
     timing_rule = TIMING_RULES[draft.report_type]
     has_timing = any(e.rule_code == timing_rule for e in run.evidence_catalog)
-    if run.rule_version != "rules-v1" and has_timing and not any(
-        catalog.get(eid) is not None and catalog[eid].rule_code == timing_rule
-        for c in draft.claims
-        for eid in c.evidence_ids
+    if (
+        run.rule_version != "rules-v1"
+        and has_timing
+        and not any(
+            catalog.get(eid) is not None and catalog[eid].rule_code == timing_rule
+            for c in draft.claims
+            for eid in c.evidence_ids
+        )
     ):
         errors.append(
             _err(
@@ -254,6 +363,9 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
     texts = [(f"sections.{k}", v) for k, v in draft.sections.items()]
     texts += [(f"claims.{i}.statement", c.statement) for i, c in enumerate(draft.claims)]
     texts += [(f"caveats.{i}", c) for i, c in enumerate(draft.caveats)]
+    if draft.report_type == "couple" and run.mode == "couple":
+        errors.extend(_check_scores(draft, catalog, texts))
+        errors.extend(_check_candidate_years(catalog, texts))
     for path, text in texts:
         if any(p.search(text) for p in PROBABILITY_PATTERNS):
             errors.append(

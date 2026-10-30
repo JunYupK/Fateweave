@@ -47,6 +47,17 @@ def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
                 statement="전통적으로 인연이 움직이는 시기 단서로 본다.",
             )
         )
+    score = next((e for e in prepared.evidence_catalog if e.rule_code == "COMPAT_SCORE"), None)
+    if score is not None:
+        claims.append(
+            Claim(
+                kind="computed",
+                rule_code="COMPAT_SCORE",
+                evidence_ids=[score.id],
+                computed_values={"score": score.operands["score"]},
+                statement="궁합 지수는 서버가 계산한 해석 지수다.",
+            )
+        )
     cue = next((e for e in prepared.evidence_catalog if e.kind == "interpretation_cue"), None)
     if cue is not None:
         claims.append(

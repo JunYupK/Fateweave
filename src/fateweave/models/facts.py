@@ -135,4 +135,8 @@ class PreparedAnalysis(BaseModel):
     start_year: int
     # rules-v2: section-by-section writing guide (empty for analyses prepared under rules-v1).
     writing_guide: dict[str, Any] = {}
+    # rules-v5: couple scores and common favorable years (spec §7), and the policy versions of
+    # the scores (compat_score, timing_score). Empty for analyses prepared before rules-v5.
+    assessments: dict[str, Any] = {}
+    scoring_versions: dict[str, str] = {}
     status: Literal["PREPARED", "VALIDATION_FAILED", "FINALIZED", "ABANDONED"] = "PREPARED"
