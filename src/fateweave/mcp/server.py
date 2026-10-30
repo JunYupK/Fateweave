@@ -58,8 +58,9 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
    - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 5%를 넘으면 \
 `HANJA_HEAVY`가 된다. 본문은 한글로 쓴다 (예: 을미 일주, 정재, 도화살). 명리 용어는 일상 언어로 \
 풀어 쓴다.
-   - 해석 깊이: 신강약(STRENGTH), 용신 후보(YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), \
-배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, 학파 의존 판단은 방법론을 밝힌다.
+   - 해석 깊이: 신강약(STRENGTH: 두 관법과 종합 판정), 외격(SPECIAL_STRUCTURE), 용신 후보\
+(YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), 배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, \
+학파 의존 판단은 방법론을 밝힌다. 외격이 성립하지 않으면 종격 해석을 하지 않는다.
    - 결혼 시기: DAEWOON_FLOW로 10년 구간을, YEAR_TIMING(커플은 COUPLE_TIMING)으로 연도별 \
 표와 순위 상위 연도를, MONTH_TIMING으로 유력 월을 구체적으로 쓴다. 해당 timing evidence를 \
 인용하는 claim이 최소 1개 필요하다.

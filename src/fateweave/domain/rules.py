@@ -1,4 +1,4 @@
-"""Individual myeongri evidence catalog — policy rules-v2.
+"""Individual myeongri evidence catalog — policy rules-v3.
 
 `build_individual_evidence` reads only the ChartSnapshot, so stored snapshots always rebuild
 the same catalog (same IDs, same digest). `operands` keep hanja (machine-checked values);
@@ -8,9 +8,12 @@ the same catalog (same IDs, same digest). `operands` keep hanja (machine-checked
 - HIDDEN_STEMS (지장간) and TWELVE_STAGES (12운성 of the day stem): fixed tables per branch.
 - SPOUSE_PALACE (日支) and SPOUSE_STAR (財星 for male, 官星 for female, by gender_for_daewoon).
 - ELEMENTS: surface 五行 count, and a second count including every hidden stem.
-- STRENGTH (身強/身弱, korean-saju 10-point scheme), YONGSIN (억부 candidate elements) and JOHU
-  (season and the simplified 조후 element): school-dependent results under a named method; the
-  method is stated in the assumptions and other schools may differ.
+- STRENGTH: three items — korean-saju 10-point scheme, Fateweave rooted_seasonal_v1 (roots in
+  hidden stems and 旺相休囚死), and the consensus (divergent or not; the rooted method is
+  primary). YONGSIN (억부 candidates from the primary level) and JOHU (season and the
+  simplified 조후 element): school-dependent results under a named method, stated in the
+  assumptions.
+- SPECIAL_STRUCTURE: korean-saju's 16 外格 checks; none accepted means 정격.
 - BRANCH_RELATIONS (六合, 三合, 沖, 刑, 破, 害, 怨嗔, 鬼門) and STEM_RELATIONS (天干合/沖).
 - SINSAL (桃花, 驛馬, 華蓋, 紅艶, 天乙貴人, 羊刃, 孤辰, 寡宿, 白虎, 魁罡, 孤鸞, 陰陽差錯) and
   GONGMANG (旬空 by the day pillar). 半合 is not listed as a relation.
@@ -56,6 +59,7 @@ RULE_ORDER: tuple[str, ...] = (
     "SINSAL",
     "GONGMANG",
     "GYEOKGUK",
+    "SPECIAL_STRUCTURE",
     "DAEWOON",
     "DAEWOON_FLOW",
     "SEWOON",
@@ -295,20 +299,52 @@ def _elements_rule(chart: ChartSnapshot) -> list[_Draft]:
 
 def _strength_rule(chart: ChartSnapshot) -> list[_Draft]:
     s = depth.strength(chart)
-    assumptions = [depth.STRENGTH_ASSUMPTION]
+    r = depth.strength_rooted(chart)
+    c = depth.strength_consensus(chart)
+    everything = frozenset(_pillars(chart))
+    library_assumptions = [depth.STRENGTH_ASSUMPTION]
     if not s["birth_time_known"]:
-        assumptions.append(depth.STRENGTH_RESCALED)
+        library_assumptions.append(depth.STRENGTH_RESCALED)
+    parts = r["components"]
+    hour = f", 시지 뿌리 {parts['hour_branch']}" if "hour_branch" in parts else ""
+    if c["divergent"]:
+        consensus = (
+            f"두 관법 판정이 다름 — 라이브러리 10점제 {depth.level_ko(s['level'])}, 통근·월령 반영 "
+            f"{depth.level_ko(r['level'])}. 억부 용신 후보와 결혼 시기 단서는 통근·월령 반영 "
+            f"판정({depth.level_ko(c['level'])})을 따름"
+        )
+    else:
+        consensus = f"두 관법 모두 {depth.level_ko(c['level'])}"
     return [
         _Draft(
             kind="rule_derived",
             operands=s,
-            text_ko=f"일간 강약: {depth.level_ko(s['level'])} ({s['total']}/10점 — 월지 득령 "
-            f"{s['deukryeong']}, 일지 득지 {s['deukji']}, 나머지 득세 {s['deukse']}, "
-            f"보정 {s['adjustment']})",
+            text_ko=f"일간 강약(라이브러리 10점제): {depth.level_ko(s['level'])} "
+            f"({s['total']}/10점 — 월지 득령 {s['deukryeong']}, 일지 득지 {s['deukji']}, "
+            f"나머지 득세 {s['deukse']}, 보정 {s['adjustment']}; 지지의 겉 오행만 봄)",
             source_ref=f"{_library(chart)}#IlganStrengthAnalyzer",
-            depends=frozenset(_pillars(chart)),
-            assumptions=tuple(assumptions),
-        )
+            depends=everything,
+            assumptions=tuple(library_assumptions),
+        ),
+        _Draft(
+            kind="rule_derived",
+            operands=r,
+            text_ko=f"일간 강약(통근·월령 반영): {depth.level_ko(r['level'])} ({r['percent']}% — "
+            f"월령 {depth.SEASON_STATE_KO[r['season_state']]} {parts['season']}, 일지 뿌리 "
+            f"{parts['day_branch']}, 연지 뿌리 {parts['year_branch']}{hour}, 천간 "
+            f"{parts['stems']} / {r['max_points']})",
+            source_ref=_rules_ref("STRENGTH"),
+            depends=everything,
+            assumptions=(depth.ROOTED_STRENGTH_ASSUMPTION,),
+        ),
+        _Draft(
+            kind="rule_derived",
+            operands=c,
+            text_ko=f"일간 강약 종합: {consensus}",
+            source_ref=_rules_ref("STRENGTH"),
+            depends=everything,
+            assumptions=(depth.STRENGTH_DIVERGENT,) if c["divergent"] else (),
+        ),
     ]
 
 
@@ -330,7 +366,7 @@ def _yongsin_rule(chart: ChartSnapshot) -> list[_Draft]:
             text_ko=text,
             source_ref=_rules_ref("YONGSIN"),
             depends=frozenset(_pillars(chart)),
-            assumptions=(depth.STRENGTH_ASSUMPTION, depth.EOKBU_ASSUMPTION),
+            assumptions=(depth.ROOTED_STRENGTH_ASSUMPTION, depth.EOKBU_ASSUMPTION),
         )
     ]
 
@@ -485,6 +521,34 @@ def _gyeokguk_rule(chart: ChartSnapshot) -> list[_Draft]:
                 "school-dependent criterion: korean-saju 0.3.0 rule (建祿·羊刃 first, month "
                 "branch 本氣→中氣→餘氣 透干 order, no 羊刃 for yin day stems, 地支合化格 included)",
             ),
+        )
+    ]
+
+
+def _special_structure_rule(chart: ChartSnapshot) -> list[_Draft]:
+    s = depth.special_structures(chart)
+    if s["accepted"]:
+        listed = ", ".join(
+            f"{x['name_ko']}({depth.VERDICT_KO[x['verdict']]}, {x['score']}점)"
+            for x in s["accepted"]
+        )
+        text = (
+            f"외격 판정({s['checked']}종 검사): {listed} 성립 — 외격으로 읽으면 억부 용신 후보와 "
+            "반대 방향이 될 수 있음"
+        )
+    else:
+        text = (
+            f"외격 판정({s['checked']}종 검사): 성립하는 외격 없음 — 정격으로 해석하고 종격·화기격 "
+            "해석을 하지 않음"
+        )
+    return [
+        _Draft(
+            kind="rule_derived",
+            operands=s,
+            text_ko=text,
+            source_ref=f"{_library(chart)}#OegyeokAnalyzer",
+            depends=frozenset(_pillars(chart)),
+            assumptions=(depth.SPECIAL_STRUCTURE_ASSUMPTION,),
         )
     ]
 
@@ -663,6 +727,7 @@ RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     "SINSAL": _sinsal_rule,
     "GONGMANG": _gongmang_rule,
     "GYEOKGUK": _gyeokguk_rule,
+    "SPECIAL_STRUCTURE": _special_structure_rule,
     "DAEWOON": _daewoon_rule,
     "DAEWOON_FLOW": _daewoon_flow_rule,
     "SEWOON": _sewoon_rule,
