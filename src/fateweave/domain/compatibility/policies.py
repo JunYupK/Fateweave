@@ -37,6 +37,8 @@ class CompatPolicy:
     structure_base: int
     structure_deltas: Mapping[str, int]
     structure_cap: int
+    # Display bands of the total, highest first: (minimum score, Korean label)
+    grades: tuple[tuple[int, str], ...]
     relation_order: tuple[str, ...] = field(default=("合", "沖", "生", "比和", "剋"))
 
     def __post_init__(self) -> None:
@@ -91,6 +93,13 @@ COMPAT_SCORE_V1 = CompatPolicy(
         }
     ),
     structure_cap=30,
+    grades=(
+        (85, "매우 조화"),
+        (70, "조화"),
+        (55, "보통"),
+        (40, "노력 필요"),
+        (0, "긴장 큼"),
+    ),
 )
 
 _POLICIES = {COMPAT_SCORE_V1.version: COMPAT_SCORE_V1}
@@ -99,3 +108,7 @@ DEFAULT_VERSION = COMPAT_SCORE_V1.version
 
 def get(version: str) -> CompatPolicy:
     return _POLICIES[version]
+
+
+def grade(policy: CompatPolicy, score: int) -> str:
+    return next(label for low, label in policy.grades if score >= low)

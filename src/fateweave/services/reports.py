@@ -90,6 +90,7 @@ class ReportView(BaseModel):
     manse_version: str
     rule_version: str
     report_schema_version: str
+    scoring_versions: dict[str, str] = {}
     evidence_digest: str
     validation: dict[str, Any]
     correction_reason: str | None = None
@@ -136,6 +137,7 @@ def render_markdown_v1(
         f"- report_type: {draft.report_type}",
         f"- manse_version: {prepared.policy_version}",
         f"- rule_version: {prepared.rule_version}",
+        *(f"- {name}_version: {v}" for name, v in sorted(prepared.scoring_versions.items())),
         f"- report_schema_version: {draft.schema_version}",
         f"- renderer_version: {MARKDOWN_RENDERER_VERSION}",
         f"- generated_by: {draft.generated_by}",
@@ -274,6 +276,7 @@ class ReportService:
                     "structured_fact_validation": "passed",
                     "schema_version": draft.schema_version,
                     "renderer_version": MARKDOWN_RENDERER_VERSION,
+                    "scoring_versions": prepared.scoring_versions,
                     "checked_at": datetime.now(UTC).isoformat(),
                     "errors": [],
                 },
@@ -346,6 +349,7 @@ class ReportService:
             manse_version=prepared.policy_version,
             rule_version=prepared.rule_version,
             report_schema_version=row.validation.get("schema_version", "report-v1"),
+            scoring_versions=prepared.scoring_versions,
             evidence_digest=evidence_digest(prepared.evidence_catalog),
             validation=row.validation,
             correction_reason=row.correction_reason,
@@ -507,6 +511,7 @@ class ReportService:
                         "structured_fact_validation": "passed",
                         "schema_version": corrected.schema_version,
                         "renderer_version": MARKDOWN_RENDERER_VERSION,
+                        "scoring_versions": prepared.scoring_versions,
                         "checked_at": datetime.now(UTC).isoformat(),
                         "errors": [],
                         "corrects_version": previous,

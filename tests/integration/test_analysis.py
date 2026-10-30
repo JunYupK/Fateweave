@@ -44,7 +44,9 @@ async def test_prepare_individual_persists_snapshot(engine: AsyncEngine):
     assert prepared.mode == "individual"
     assert list(prepared.facts) == ["self"]
     assert prepared.evidence_catalog
-    assert prepared.policy_version == "manse-v2" and prepared.rule_version == "rules-v4"
+    assert prepared.assessments == {}
+    assert prepared.scoring_versions == {"timing_score": "timing-score-v1"}
+    assert prepared.policy_version == "manse-v2" and prepared.rule_version == "rules-v5"
     assert (prepared.start_year, prepared.horizon_years) == (2026, 10)
     assert [s.year for s in prepared.facts["self"].sewoon] == list(range(2026, 2036))
 
@@ -91,6 +93,21 @@ async def test_prepare_couple_persists_two_participants(engine: AsyncEngine):
     ids = {e.id for e in prepared.evidence_catalog}
     assert any(i.startswith("E-A-") for i in ids) and any(i.startswith("E-B-") for i in ids)
     assert any("COUPLE" in i for i in ids)
+    comp = prepared.assessments["compatibility"]
+    assert comp["score_type"] == "interpretive_index" and 0 <= comp["score"] <= 100
+    assert comp["evidence_id"] in ids
+    assert set(comp["components"]) == {
+        "day_master",
+        "spouse_palace",
+        "element_balance",
+        "overall_structure",
+    }
+    assert prepared.assessments["timing_overlap"]["evidence_id"] in ids
+    assert prepared.scoring_versions == {
+        "timing_score": "timing-score-v1",
+        "compat_score": "compat-score-v1",
+    }
+    assert prepared.writing_guide["required_score_rule"] == "COMPAT_SCORE"
     assert await _count(engine, "birth_profiles") == 2
     async with engine.connect() as conn:
         n = (

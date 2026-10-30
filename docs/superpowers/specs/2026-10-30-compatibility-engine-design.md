@@ -164,6 +164,8 @@ B→A 점수:
 
 기존 응답에 아래 블록을 추가한다. 같은 값이 evidence(`COMPAT_SCORE`, `COMPAT_COMPONENT`, `TIMING_OVERLAP`)로도 들어가 claim 검증에 쓰인다.
 
+구현(rules-v5): 공통 후보 근거는 새 `TIMING_OVERLAP` 대신 기존 `COUPLE_TIMING_OVERLAP`·`COUPLE_LIFE_TIMING`을 그대로 쓰고, 후보마다 그해 `COUPLE_TIMING` 근거 ID를 붙인다. 20~50세 공통 후보는 `life_overlap` 블록으로 함께 낸다. 정책 버전은 응답·스냅샷·리포트의 `scoring_versions`에 기록한다.
+
 ```json
 {
   "assessments": {
@@ -196,9 +198,9 @@ B→A 점수:
 
 ## 8. 검증 규칙 추가 (finalize_report)
 
-- 리포트가 궁합 지수를 언급하면, `COMPAT_SCORE`를 인용한 computed claim이 있어야 하고 `computed_values.score`가 서버 값과 같아야 한다.
+- 커플 리포트에는 (구현: 언급 여부와 무관하게 항상) `COMPAT_SCORE`를 인용한 computed claim이 있어야 하고 `computed_values.score`가 서버 값과 같아야 한다.
 - 본문에서 "궁합 (지수|점수) N점" 형태의 숫자는 서버의 총점 또는 영역 점수 중 하나와 같아야 한다 (`SCORE_MISMATCH`).
-- 공통 유리 시기로 제시한 연도는 `TIMING_OVERLAP.candidates` 안에 있어야 한다. 후보가 없는데 "최적의 해"를 단정하면 거절한다.
+- 공통 유리 시기로 제시한 연도는 `TIMING_OVERLAP.candidates` 안에 있어야 한다 (구현: `COUPLE_TIMING_OVERLAP`·`COUPLE_LIFE_TIMING` 후보, 위반 시 `TIMING_NOT_CANDIDATE`). 후보가 없는데 "최적의 해"를 단정하면 거절한다.
 - "결혼 확률", "성사 확률", "N% 확률" 표현은 기존대로 거절한다.
 
 ## 9. 함께 진행하는 정확도 작업 (A·D)
