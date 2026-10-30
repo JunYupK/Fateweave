@@ -214,7 +214,7 @@ def test_evidence_sources_are_identified(known, unknown):
         for e in evidence:
             assert e.text_ko.strip()
             assert e.source_ref, e
-            assert e.source_ref.startswith(("manse-v2#", "rules-v3#", library)), e
+            assert e.source_ref.startswith(("manse-v2#", "rules-v4#", library)), e
         for e in evidence:
             if e.rule_code in ("TEN_GODS", "DAEWOON", "SEWOON"):
                 assert e.kind == "computed" and e.source_ref.startswith(library), e
@@ -222,7 +222,7 @@ def test_evidence_sources_are_identified(known, unknown):
                 assert e.kind == "computed" and e.source_ref == "manse-v2#PILLARS"
             if e.rule_code in ("SPOUSE_PALACE", "ELEMENTS", "BRANCH_RELATIONS"):
                 assert e.kind == "rule_derived"
-                assert e.source_ref == f"rules-v3#{e.rule_code}"
+                assert e.source_ref == f"rules-v4#{e.rule_code}"
             if e.rule_code == "GYEOKGUK" and e.kind == "rule_derived":
                 assert e.source_ref.startswith(library)
                 assert e.assumptions  # the school-dependent criterion is stated
@@ -246,4 +246,4 @@ def test_rule_order_does_not_change_digest(known, unknown, monkeypatch):
         assert [e.id for e in shuffled] == [e.id for e in baseline]
         assert evidence_digest(shuffled) == evidence_digest(baseline)
     assert set(rules.RULES) == set(RULE_ORDER)
-    assert len(RULE_ORDER) == 21
+    assert len(RULE_ORDER) == 22

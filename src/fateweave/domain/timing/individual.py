@@ -17,9 +17,15 @@ Cue codes (per person, for a year or month pillar):
 - DAEWOON_SPOUSE_STAR / DAEWOON_PALACE_HAP: the daewoon running that year carries the spouse
   star / combines (六合 or same 三合 group) with the day branch (years only).
 - EOKBU_FAVORABLE: the stem or branch element is an 억부 candidate element (years only).
+- SEWOON_DAEWOON_HAP: the year branch combines (六合 or same 三合 group) with the running
+  daewoon branch (years only).
 Caution codes: PALACE_CHUNG, PALACE_HYEONG, PALACE_WONJIN (the branch clashes, punishes or
-resents the day branch) and RIVAL_STAR (male: 比劫 stem, a rival for the 財星; female: 傷官
-stem, 傷官見官).
+resents the day branch), RIVAL_STAR (male: 比劫 stem, a rival for the 財星; female: 傷官
+stem, 傷官見官) and SEWOON_DAEWOON_CHUNG (the year branch clashes with the running daewoon
+branch; years only).
+
+timing-score-v1: each cue and caution has fixed points (CUE_POINTS, CAUTION_POINTS); a
+pillar's `signal` is their sum. It orders years; it is not a likelihood.
 """
 
 from __future__ import annotations
@@ -39,7 +45,11 @@ YEAR_PILLAR_ASSUMPTION = "year pillar applies from 立春 of that year, not from
 MONTH_ASSUMPTION = (
     "month pillars by 五虎遁; month starts are typical 節入 dates and can differ by 1-2 days"
 )
-RANK_ASSUMPTION = "rank orders years by core cue count, then all cues, then year; not a likelihood"
+TIMING_VERSION = "timing-score-v1"
+RANK_ASSUMPTION = (
+    "rank orders years by the timing-score-v1 signal (core cue +2, other cue +1, spouse-palace "
+    "clash -2, other caution -1), then core cues, then year; not a likelihood"
+)
 
 CORE_CUES = (
     "SPOUSE_STAR_STEM",
@@ -60,11 +70,31 @@ CUE_KO = {
     "DAEWOON_SPOUSE_STAR": "대운 배우자성",
     "DAEWOON_PALACE_HAP": "대운-배우자궁 합",
     "EOKBU_FAVORABLE": "억부 희용 오행",
+    "SEWOON_DAEWOON_HAP": "세운-대운 합",
+    "SEWOON_DAEWOON_CHUNG": "세운-대운 충",
     "PALACE_CHUNG": "배우자궁 충",
     "PALACE_HYEONG": "배우자궁 형",
     "PALACE_WONJIN": "배우자궁 원진",
     "RIVAL_STAR": "경쟁·견제 십성",
 }
+CUE_POINTS = {
+    **dict.fromkeys(CORE_CUES, 2),
+    "SPOUSE_PALACE_SAME_TEN_GOD": 1,
+    "DOHWA": 1,
+    "HONGYEOM": 1,
+    "DAEWOON_SPOUSE_STAR": 1,
+    "DAEWOON_PALACE_HAP": 1,
+    "EOKBU_FAVORABLE": 1,
+    "SEWOON_DAEWOON_HAP": 1,
+}
+CAUTION_POINTS = {
+    "PALACE_CHUNG": -2,
+    "PALACE_HYEONG": -1,
+    "PALACE_WONJIN": -1,
+    "RIVAL_STAR": -1,
+    "SEWOON_DAEWOON_CHUNG": -1,
+}
+LIFE_AGES = (20, 50)  # age window of the life-span summaries
 # 寅月 … 丑月 with typical 節入 (month-day) dates; 丑月 falls in January of the next year.
 _MONTHS = tuple(
     zip(
@@ -236,6 +266,9 @@ def signals(
         cues.append("DAEWOON_PALACE_HAP")
     if favorable and (t.STEM_ELEMENT[stem] in favorable or t.BRANCH_ELEMENT[branch] in favorable):
         cues.append("EOKBU_FAVORABLE")
+    running_branches = [p[1] for p in running]
+    if any(_palace_hap(b, branch) for b in running_branches):
+        cues.append("SEWOON_DAEWOON_HAP")
 
     cautions: list[str] = []
     if "沖" in palace:
@@ -251,6 +284,8 @@ def signals(
     rival = ("比肩", "劫財") if chart.gender_for_daewoon == "male" else ("傷官",)
     if stem_god in rival:
         cautions.append("RIVAL_STAR")
+    if any(rel == "沖" for b in running_branches for rel, _, _ in t.pair_relations(branch, b)):
+        cautions.append("SEWOON_DAEWOON_CHUNG")
     return {
         "stem_ten_god": stem_god,
         "branch_ten_god": branch_god,
@@ -258,7 +293,13 @@ def signals(
         "cautions": cautions,
         "core_count": sum(c in CORE_CUES for c in cues),
         "cue_count": len(cues),
+        "signal": signal_points(cues, cautions),
     }
+
+
+def signal_points(cues: list[str], cautions: list[str]) -> int:
+    """timing-score-v1 signal: the sum of the fixed cue and caution points."""
+    return sum(CUE_POINTS[c] for c in cues) + sum(CAUTION_POINTS[c] for c in cautions)
 
 
 def cues_ko(codes: list[str]) -> str:
@@ -266,7 +307,7 @@ def cues_ko(codes: list[str]) -> str:
 
 
 def year_rows(chart: ChartSnapshot, start_year: int, years: int) -> list[dict[str, Any]]:
-    """One row per year with signals, the running daewoon and a rank (1 = most core cues)."""
+    """One row per year with signals, the running daewoon and a rank (1 = highest signal)."""
     favorable = depth.favorable_elements(chart)
     rows = []
     for year in range(start_year, start_year + years):
@@ -282,7 +323,7 @@ def year_rows(chart: ChartSnapshot, start_year: int, years: int) -> list[dict[st
                 **sig,
             }
         )
-    order = sorted(rows, key=lambda r: (-r["core_count"], -r["cue_count"], r["year"]))
+    order = sorted(rows, key=lambda r: (-r["signal"], -r["core_count"], r["year"]))
     for rank, row in enumerate(order, start=1):
         row["rank"] = rank
     return rows
@@ -307,3 +348,45 @@ def month_rows(chart: ChartSnapshot, year_pillar_hanja: str) -> list[dict[str, A
             }
         )
     return rows
+
+
+def birth_year(chart: ChartSnapshot) -> int:
+    return int(chart.solar_date[:4])
+
+
+def life_rows(chart: ChartSnapshot, ages: tuple[int, int] = LIFE_AGES) -> list[dict[str, Any]]:
+    """year_rows over the ages window (age = year - birth year, as the library's sewoon)."""
+    first = birth_year(chart) + ages[0]
+    return year_rows(chart, first, ages[1] - ages[0] + 1)
+
+
+def life_summary(chart: ChartSnapshot, ages: tuple[int, int] = LIFE_AGES, limit: int = 3):
+    """Per daewoon decade inside the ages window: its years with the highest positive signal."""
+    rows = life_rows(chart, ages)
+    born = birth_year(chart)
+    blocks = []
+    for i, entry in enumerate(chart.daewoon.entries):
+        lo, hi = max(entry.start_age, ages[0]), min(entry.start_age + 9, ages[1])
+        if lo > hi:
+            continue
+        inside = [r for r in rows if lo <= r["year"] - born <= hi and r["signal"] > 0]
+        best = sorted(inside, key=lambda r: (-r["signal"], -r["core_count"], r["year"]))[:limit]
+        blocks.append(
+            {
+                "index": i,
+                "daewoon": entry.pillar,
+                "from_age": lo,
+                "to_age": hi,
+                "top_years": [
+                    {
+                        "year": r["year"],
+                        "pillar": r["pillar"],
+                        "signal": r["signal"],
+                        "cues": r["cues"],
+                        "cautions": r["cautions"],
+                    }
+                    for r in best
+                ],
+            }
+        )
+    return blocks

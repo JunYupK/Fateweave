@@ -16,8 +16,11 @@ subject-agnostic entries, so swapping a and b yields identical pair IDs and oper
   branch (本氣) and whether it is that person's spouse star.
 - COUPLE_ELEMENT_COMPLEMENT: for each person, the surface elements they lack that the partner
   has, and how many of the partner's surface characters carry their 억부/조후 candidate elements.
-- COUPLE_TIMING: every window year with both people's marriage-timing cues (timing.py) and a
-  joint rank (years where both carry core cues first). It never picks a marriage year.
+- COUPLE_TIMING: every window year with both people's cues and signals (timing-score-v1) and
+  whether it is a common candidate (timing.overlap: both have a core cue, neither has a
+  spouse-palace clash; ranked by the lower signal).
+- COUPLE_TIMING_OVERLAP: the window's candidates, or none with the reason (never forced).
+- COUPLE_LIFE_TIMING: the same over the years when both are aged 20-50 (top 5).
 - COUPLE_LUCK_OVERLAP: a record only — for every window year, the year pillar and each
   person's daewoon pillar(s) active during it.
 
@@ -59,14 +62,17 @@ COUPLE_RULE_ORDER: tuple[str, ...] = (
     "COUPLE_SPOUSE_STAR_MATCH",
     "COUPLE_ELEMENT_COMPLEMENT",
     "COUPLE_TIMING",
+    "COUPLE_TIMING_OVERLAP",
+    "COUPLE_LIFE_TIMING",
     "COUPLE_LUCK_OVERLAP",
 )
 PAIR_SUBJECT_KEY = "AB"
 MAX_WINDOW_YEARS = 30
 TIMING_ASSUMPTION = timing.TIMING_ASSUMPTION
-JOINT_RANK_ASSUMPTION = (
-    "joint rank orders years by: both have core cues, then total core cues, then all cues, "
-    "then year; not a likelihood"
+OVERLAP_ASSUMPTION = (
+    "timing-score-v1 overlap: a candidate needs a core cue for both people and no spouse-palace "
+    "clash for either; ordered by the lower signal, then the sum, then year; no candidate is "
+    "reported as none, never forced; not a likelihood"
 )
 TRANSITION_ASSUMPTION = "daewoon transition year; boundary depends on start age convention"
 DAEWOON_UNAVAILABLE = timing.DAEWOON_UNAVAILABLE
@@ -294,26 +300,18 @@ def _element_complement_rule(a: Labelled, b: Labelled) -> Drafts:
     return [(draft, {la: everything, lb: everything})]
 
 
+def _sorted_signals(ra: dict[str, Any], rb: dict[str, Any]) -> list[int]:
+    return sorted([ra["signal"], rb["signal"]])
+
+
 def _timing_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> Drafts:
+    """Every window year with both people's cues; candidates follow timing.overlap."""
     (la, ca), (lb, cb) = a, b
     rows_a = timing.year_rows(ca, start_year, years)
     rows_b = timing.year_rows(cb, start_year, years)
-    joint = []
-    for ra, rb in zip(rows_a, rows_b, strict=True):
-        both = ra["core_count"] > 0 and rb["core_count"] > 0
-        joint.append((ra, rb, both))
-    order = sorted(
-        joint,
-        key=lambda x: (
-            not x[2],
-            -(x[0]["core_count"] + x[1]["core_count"]),
-            -(x[0]["cue_count"] + x[1]["cue_count"]),
-            x[0]["year"],
-        ),
-    )
-    ranks = {x[0]["year"]: i for i, x in enumerate(order, start=1)}
+    joined = {y["year"]: y for y in timing.overlap(rows_a, rows_b)["years"]}
     drafts: Drafts = []
-    for ra, rb, both in joint:
+    for ra, rb in zip(rows_a, rows_b, strict=True):
 
         def entry(row: dict[str, Any], chart: ChartSnapshot) -> dict[str, Any]:
             return {
@@ -321,29 +319,35 @@ def _timing_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> Draft
                 "cues": row["cues"],
                 "cautions": row["cautions"],
                 "core_count": row["core_count"],
+                "signal": row["signal"],
             }
 
         def part(label: str, row: dict[str, Any]) -> str:
             caution = f" / 주의 {timing.cues_ko(row['cautions'])}" if row["cautions"] else ""
-            return f"{label} 단서 {timing.cues_ko(row['cues'])}{caution}"
+            return f"{label} 신호 {row['signal']} — 단서 {timing.cues_ko(row['cues'])}{caution}"
 
         year = ra["year"]
+        record = joined[year]
+        status = (
+            f"공통 후보 {record['candidate_rank']}순위"
+            if record["candidate"]
+            else "공통 후보 아님"
+        )
         draft = _Draft(
             kind="rule_derived",
             operands={
                 "year": year,
                 "year_pillar": ra["pillar"],
-                "both_core": both,
-                "joint_rank": ranks[year],
+                "candidate": record["candidate"],
+                "candidate_rank": record["candidate_rank"],
                 "entries": _entries(entry(ra, ca), entry(rb, cb)),
             },
-            text_ko=f"{year}년 {_ko(ra['pillar'])} (공동 순위 {ranks[year]}"
-            f"{', 두 사람 모두 핵심 단서' if both else ''}): {part(la, ra)}; {part(lb, rb)}",
+            text_ko=f"{year}년 {_ko(ra['pillar'])} ({status}): {part(la, ra)}; {part(lb, rb)}",
             source_ref=f"{_rules_ref('COUPLE_TIMING')} (year pillar by 60-cycle, "
             f"{_SEXAGENARY_BASE_YEAR}=甲子)",
             assumptions=(
                 TIMING_ASSUMPTION,
-                JOINT_RANK_ASSUMPTION,
+                OVERLAP_ASSUMPTION,
                 timing.YEAR_PILLAR_ASSUMPTION,
                 t.SPOUSE_STAR_ASSUMPTION,
             ),
@@ -351,6 +355,75 @@ def _timing_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> Draft
         everything = frozenset(POSITIONS)
         drafts.append((draft, {la: everything, lb: everything}))
     return drafts
+
+
+def _candidates_operands(result: dict[str, Any], rows: dict[int, tuple[dict, dict]]):
+    return [
+        {"year": c["year"], "pillar": c["pillar"], "signals": _sorted_signals(*rows[c["year"]])}
+        for c in result["candidates"]
+    ]
+
+
+def _candidates_ko(result: dict[str, Any], la: str, lb: str) -> str:
+    if not result["candidates"]:
+        return f"없음 — {result['no_candidate_reason']}"
+    return ", ".join(
+        f"{c['year']}년 {_ko(c['pillar'])}({la} {c['a_signal']}·{lb} {c['b_signal']})"
+        for c in result["candidates"]
+    )
+
+
+def _overlap_rule(a: Labelled, b: Labelled, start_year: int, years: int) -> Drafts:
+    """The window's common favorable years (may be none)."""
+    (la, ca), (lb, cb) = a, b
+    rows_a = timing.year_rows(ca, start_year, years)
+    rows_b = timing.year_rows(cb, start_year, years)
+    result = timing.overlap(rows_a, rows_b)
+    pairs = {ra["year"]: (ra, rb) for ra, rb in zip(rows_a, rows_b, strict=True)}
+    draft = _Draft(
+        kind="rule_derived",
+        operands={
+            "from_year": start_year,
+            "to_year": start_year + years - 1,
+            "candidates": _candidates_operands(result, pairs),
+            "no_candidate_reason": result["no_candidate_reason"],
+        },
+        text_ko=f"{start_year}~{start_year + years - 1}년 공통 유리 시기 후보(두 사람 모두 핵심 "
+        f"단서, 배우자궁 충 없음, 낮은 쪽 신호 순): {_candidates_ko(result, la, lb)}",
+        source_ref=_rules_ref("COUPLE_TIMING_OVERLAP"),
+        assumptions=(TIMING_ASSUMPTION, OVERLAP_ASSUMPTION),
+    )
+    everything = frozenset(POSITIONS)
+    return [(draft, {la: everything, lb: everything})]
+
+
+def _life_overlap_rule(a: Labelled, b: Labelled) -> Drafts:
+    """Common favorable years while both are aged 20-50 (top 5; may be none)."""
+    (la, ca), (lb, cb) = a, b
+    result = timing.life_overlap(ca, cb)
+    pairs: dict[int, tuple[dict, dict]] = {}
+    if result["candidates"]:
+        start, end = result["from_year"], result["to_year"]
+        rows_a = timing.year_rows(ca, start, end - start + 1)
+        rows_b = timing.year_rows(cb, start, end - start + 1)
+        pairs = {ra["year"]: (ra, rb) for ra, rb in zip(rows_a, rows_b, strict=True)}
+    low, high = timing.LIFE_AGES
+    draft = _Draft(
+        kind="rule_derived",
+        operands={
+            "from_year": result["from_year"],
+            "to_year": result["to_year"],
+            "ages": [low, high],
+            "candidates": _candidates_operands(result, pairs),
+            "no_candidate_reason": result["no_candidate_reason"],
+        },
+        text_ko=f"두 사람 모두 {low}~{high}세인 {result['from_year']}~{result['to_year']}년의 "
+        f"공통 유리 시기 상위 후보: {_candidates_ko(result, la, lb)}",
+        source_ref=_rules_ref("COUPLE_LIFE_TIMING"),
+        assumptions=(TIMING_ASSUMPTION, OVERLAP_ASSUMPTION),
+    )
+    everything = frozenset(POSITIONS)
+    return [(draft, {la: everything, lb: everything})]
 
 
 def _timeline_ko(timeline: list[str]) -> str:
@@ -402,6 +475,8 @@ def build_couple_evidence(
         "COUPLE_SPOUSE_STAR_MATCH": _spouse_star_match_rule(la, lb),
         "COUPLE_ELEMENT_COMPLEMENT": _element_complement_rule(la, lb),
         "COUPLE_TIMING": _timing_rule(la, lb, start_year, years),
+        "COUPLE_TIMING_OVERLAP": _overlap_rule(la, lb, start_year, years),
+        "COUPLE_LIFE_TIMING": _life_overlap_rule(la, lb),
         "COUPLE_LUCK_OVERLAP": _luck_overlap_rule(la, lb, start_year, years),
     }
     assert tuple(rules) == COUPLE_RULE_ORDER
