@@ -68,6 +68,12 @@ def _missing_data(facts: dict[str, ChartSnapshot]) -> list[str]:
                 "so pillar-dependent statements are not definitive."
             )
         codes = chart.warning_codes
+        if "HOUR_BOUNDARY_NEAR" in codes:
+            notes.append(
+                f"The given birth time for {who} is within a few minutes of an hour boundary: the "
+                "hour pillar may be the alternative one, so hour-dependent statements are not "
+                "definitive."
+            )
         if "LONGITUDE_ASSUMED_SEOUL" in codes:
             notes.append(f"Birth longitude unknown for {who}: Seoul longitude was assumed.")
         if "SOLAR_TERMS_COMPUTED" in codes:

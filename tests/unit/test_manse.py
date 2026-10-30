@@ -75,7 +75,7 @@ def test_known_1990_case():
     assert snap.day_pillar == independent_day_pillar(date(1990, 1, 1))
     assert snap.certainty == exp["certainty"]
     assert snap.alternatives == []
-    assert snap.policy_version == "manse-v1"
+    assert snap.policy_version == "manse-v2"
     assert snap.library_version == "0.3.0"
     assert snap.longitude == 126.9784
     assert "LONGITUDE_ASSUMED_SEOUL" in snap.warning_codes
@@ -102,7 +102,10 @@ def test_hour_pillar_matches_fixture_and_independent_oracle(case_id):
     )
     kst = time.fromisoformat(case["input"]["birth_time"])
     assert snap.hour_pillar == independent_hour_pillar(date(1990, 1, 1), kst, 126.9784)
-    assert snap.certainty == "CONFIRMED"
+    assert snap.certainty == exp["certainty"]
+    if "alternative_hour_pillar" in exp:  # manse-v2: within 15 min of the hour boundary
+        assert [a.hour_pillar for a in snap.alternatives] == [exp["alternative_hour_pillar"]]
+        assert "HOUR_BOUNDARY_NEAR" in snap.warning_codes
 
 
 @pytest.mark.parametrize(
@@ -120,7 +123,7 @@ def test_seoul_chen_si_boundary(kst, expected):
     assert independent_hour_pillar(date(1990, 1, 1), kst, 126.9784) == expected
 
 
-def test_manse_v1_time_policy_is_explicit():
+def test_manse_time_policy_is_explicit():
     from korean_saju import SolarTimeCorrection
 
     from fateweave.domain import manse
@@ -152,7 +155,9 @@ def test_yaja_toggle_boundary():
         exp["hour_pillar"],
     )
     assert snap.day_pillar == independent_day_pillar(date(1994, 4, 28)) == "甲申"
-    assert snap.certainty == "CONFIRMED"
+    # manse-v2: 23:08 local mean time is 8 min into 子時, so 乙亥 is a boundary alternative.
+    assert snap.certainty == exp["certainty"] == "PARTIAL"
+    assert [a.hour_pillar for a in snap.alternatives] == [exp["alternative_hour_pillar"]]
     assert snap.yaja_si_separated is True
 
     contrast = compute_chart(from_case("yaja_1994"), yaja_si_separated=False)
@@ -317,3 +322,57 @@ def _minimal_env():
     src = str(Path(__file__).parents[2] / "src")
     env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
     return env
+
+
+# --- manse-v2: a known birth time close to an hour boundary -------------------------------
+
+
+def test_hour_boundary_near_is_partial_with_alternative():
+    # 1998-06-17 11:27 KST at 126.83E: local mean time 10:54 -> 辛巳, 6 minutes before 午.
+    snap = compute_chart(birth(birth_date="1998-06-17", birth_time=time(11, 27), longitude=126.83))
+    assert pillars(snap) == ("戊寅", "戊午", "乙未", "辛巳")
+    assert snap.certainty == "PARTIAL"
+    assert "HOUR_BOUNDARY_NEAR" in snap.warning_codes
+    assert "BOUNDARY_REVIEW_REQUIRED" in snap.warning_codes
+    (alt,) = snap.alternatives
+    assert alt.hour_pillar == "壬午" and alt.day_pillar == "乙未"
+    assert {"HOUR_BOUNDARY", "HOUR_BOUNDARY_NEAR"} <= set(alt.reasons)
+    # The wall-clock window of the scan that yields 壬午 starts at the boundary minute.
+    assert alt.local_windows and alt.local_windows[0].startswith("11:33")
+    near = next(w for w in snap.warnings if w.code == "HOUR_BOUNDARY_NEAR")
+    assert "6 min" in near.detail
+
+
+def test_mid_hour_birth_stays_confirmed():
+    # 16:30 KST Seoul -> 15:58 local mean time, 58 minutes from either 申 boundary.
+    snap = compute_chart(birth(birth_time=time(16, 30), longitude=126.9784))
+    assert snap.certainty == "CONFIRMED"
+    assert "HOUR_BOUNDARY_NEAR" not in snap.warning_codes
+
+
+def test_hour_boundary_margin_is_fifteen_minutes():
+    from fateweave.domain import manse
+
+    assert manse.HOUR_BOUNDARY_MARGIN_MINUTES == 15
+    # 辰/巳 at Seoul is 09:32:05 KST: 09:16 is 16 minutes before it, 09:18 is 14 minutes before.
+    far = compute_chart(birth(birth_time=time(9, 16), longitude=126.9784))
+    near = compute_chart(birth(birth_time=time(9, 18), longitude=126.9784))
+    assert far.certainty == "CONFIRMED"
+    assert near.certainty == "PARTIAL"
+    assert [a.hour_pillar for a in near.alternatives] == ["癸巳"]
+
+
+@pytest.mark.parametrize(
+    ("birth_date", "kst", "expected"),
+    [
+        # Research report's illustrative cases (2026 KASI solar terms; Seoul).
+        ("2026-08-01", time(10, 30), ("丙午", "乙未", "丁未", "乙巳")),  # before 立秋
+        ("2026-10-11", time(14, 0), ("丙午", "戊戌", "戊午", "己未")),  # after 寒露
+        ("2026-12-09", time(18, 30), ("丙午", "庚子", "丁巳", "己酉")),  # after 大雪
+    ],
+)
+def test_reference_cases_from_research_report(birth_date, kst, expected):
+    snap = compute_chart(birth(birth_date=birth_date, birth_time=kst, longitude=126.9784))
+    assert pillars(snap) == expected
+    assert snap.certainty == "CONFIRMED"
+    assert snap.solar_term_source == "kasi"

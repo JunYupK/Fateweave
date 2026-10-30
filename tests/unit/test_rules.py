@@ -203,12 +203,12 @@ def test_evidence_sources_are_identified(known, unknown):
         for e in evidence:
             assert e.text_ko.strip()
             assert e.source_ref, e
-            assert e.source_ref.startswith(("manse-v1#", "rules-v2#", library)), e
+            assert e.source_ref.startswith(("manse-v2#", "rules-v2#", library)), e
         for e in evidence:
             if e.rule_code in ("TEN_GODS", "DAEWOON", "SEWOON"):
                 assert e.kind == "computed" and e.source_ref.startswith(library), e
             if e.rule_code == "PILLARS":
-                assert e.kind == "computed" and e.source_ref == "manse-v1#PILLARS"
+                assert e.kind == "computed" and e.source_ref == "manse-v2#PILLARS"
             if e.rule_code in ("SPOUSE_PALACE", "ELEMENTS", "BRANCH_RELATIONS"):
                 assert e.kind == "rule_derived"
                 assert e.source_ref == f"rules-v2#{e.rule_code}"
