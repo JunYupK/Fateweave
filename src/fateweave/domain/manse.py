@@ -1,6 +1,7 @@
-"""Deterministic manse (만세력) chart adapter over korean-saju 0.3.0 — policy manse-v1.
+"""Deterministic manse (만세력) chart adapter over korean-saju 0.3.0 — policy manse-v2.
 
-manse-v1 conventions (fixed; change them only with a new policy version):
+manse-v2 = manse-v1 plus the hour-boundary margin below. Conventions (fixed; change them only
+with a new policy version):
 - Civil time: the birth wall clock is read as fixed UTC+9 (KST), which is what the library
   assumes. Historical Korean offsets (LMT +8:27:52 to 1908-04-01, UTC+8:30 to 1911 and in
   1954-1961, DST in 1948-1960 and 1987-1988) are not applied; those years get
@@ -20,6 +21,11 @@ manse-v1 conventions (fixed; change them only with a new policy version):
   pillar changes within the date (unknown time), computed 節 within +-24h of the birth
   (or of the birth date), a KASI 節 in the same minute as the birth, unknown longitude
   across Korea (124.6E-131.9E), and the historical civil-time shifts above.
+- Known birth time near an hour boundary (manse-v2): every minute within
+  +-HOUR_BOUNDARY_MARGIN_MINUTES of the given wall clock is evaluated; a different pillar set
+  there (hour, or the day around 子時) is an alternative with reason HOUR_BOUNDARY_NEAR, and
+  the chart gets the HOUR_BOUNDARY_NEAR warning with the minutes to the boundary. Recorded
+  birth times are often rounded, and a few minutes decide the hour pillar.
 """
 
 from __future__ import annotations
@@ -56,7 +62,7 @@ from fateweave.models.facts import (
 from fateweave.models.inputs import NormalizedBirth
 
 KST_STANDARD_MERIDIAN = 135.0  # must equal SolarTimeCorrection.KOREAN_STANDARD_MERIDIAN
-APPLY_EQUATION_OF_TIME = False  # manse-v1 uses local mean solar time only
+APPLY_EQUATION_OF_TIME = False  # manse-v1/v2 use local mean solar time only
 YAJA_SI_SEPARATED = True
 DEFAULT_LONGITUDE = 126.9784
 # South Korea's longitude extremes (Baengnyeongdo ~124.6E, Dokdo ~131.9E).
@@ -65,6 +71,8 @@ MIN_SUPPORTED_YEAR = 1900  # library ΔT / solar-term computation range starts a
 COMPUTED_TERM_TOLERANCE = timedelta(hours=24)
 KASI_TERM_TOLERANCE = timedelta(minutes=1)
 DAEWOON_COUNT = 10
+# manse-v2: a known birth time this close to an hour boundary is not definitive.
+HOUR_BOUNDARY_MARGIN_MINUTES = 15
 _KST_OFFSET = timedelta(hours=9)
 _NOON = time(12, 0)
 _MINUTES_PER_DAY = 1440
@@ -175,6 +183,30 @@ def _nearby_jeols(start_utc: datetime, end_utc: datetime, *, unknown_time: bool)
                 yield term, computed
 
 
+def _scan_hour_margin(ref, longitude, yaja, primary, add) -> int | None:
+    """Alternatives within +-HOUR_BOUNDARY_MARGIN_MINUTES of a known birth time.
+
+    Returns the distance in minutes to the nearest differing minute, or None. Windows are the
+    wall-clock minute ranges (as given, before the solar-time correction) of each alternative.
+    """
+    by_key: dict[Key, list[int]] = {}
+    for offset in range(-HOUR_BOUNDARY_MARGIN_MINUTES, HOUR_BOUNDARY_MARGIN_MINUTES + 1):
+        if offset == 0:
+            continue
+        key = _key(_saju(ref + timedelta(minutes=offset), longitude, True, yaja))
+        if key != primary:
+            by_key.setdefault(key, []).append(offset)
+    base = ref.hour * 60 + ref.minute
+    for key, offsets in by_key.items():
+        reasons = _diff_reasons(key, primary) | {"HOUR_BOUNDARY_NEAR"}
+        for a, b in _runs(offsets):
+            add(key, reasons, f"{_hhmm((base + a) % _MINUTES_PER_DAY)}-"
+                f"{_hhmm((base + b) % _MINUTES_PER_DAY)}")
+    if not by_key:
+        return None
+    return min(abs(o) for offsets in by_key.values() for o in offsets)
+
+
 def compute_chart(
     birth: NormalizedBirth,
     *,
@@ -182,7 +214,7 @@ def compute_chart(
     sewoon_start_year: int | None = None,
     sewoon_years: int = 10,
 ) -> ChartSnapshot:
-    """Compute a manse-v1 chart snapshot.
+    """Compute a manse-v2 chart snapshot.
 
     sewoon: `sewoon_years` consecutive years from `sewoon_start_year`; empty when no start year
     is passed (the snapshot never depends on the wall clock).
@@ -191,7 +223,7 @@ def compute_chart(
     if year < MIN_SUPPORTED_YEAR:
         raise BirthInputError(
             "UNSUPPORTED_DATE",
-            f"manse-v1 supports births from {MIN_SUPPORTED_YEAR}",
+            f"{Settings.MANSE_POLICY_VERSION} supports births from {MIN_SUPPORTED_YEAR}",
         )
     if sewoon_years < 1:
         raise ValueError("sewoon_years must be >= 1")
@@ -216,7 +248,7 @@ def compute_chart(
         warnings.append(
             ChartWarning(
                 code="NON_DEFAULT_YAJA_POLICY",
-                detail="yaja-si unified (single 子時) instead of manse-v1's separated rule",
+                detail="yaja-si unified (single 子時) instead of the policy's separated rule",
             )
         )
     shifts = _civil_shifts(year)
@@ -289,6 +321,18 @@ def compute_chart(
             reasons = _diff_reasons(key, primary) | (cause if key not in alts else set())
             for a, b in _runs(minutes):
                 add(key, reasons, f"{_hhmm(a)}-{_hhmm(b)}{suffix}")
+
+    if hour_known:
+        nearest = _scan_hour_margin(ref, longitude, yaja_si_separated, primary, add)
+        if nearest is not None:
+            warnings.append(
+                ChartWarning(
+                    code="HOUR_BOUNDARY_NEAR",
+                    detail=f"the given birth time is {nearest} min from a pillar boundary "
+                    f"(scanned +-{HOUR_BOUNDARY_MARGIN_MINUTES} min); the other side is "
+                    "listed as an alternative",
+                )
+            )
 
     if hour_known:
         span = (ref_utc, ref_utc)

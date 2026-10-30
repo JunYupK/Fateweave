@@ -4,7 +4,7 @@
 the same catalog (same IDs, same digest). `operands` keep hanja (machine-checked values);
 `text_ko` is written in hangul (see glossary.py). Rules, in fixed order:
 
-- PILLARS / TEN_GODS / DAEWOON / SEWOON: copied from the snapshot (manse-v1, korean-saju).
+- PILLARS / TEN_GODS / DAEWOON / SEWOON: copied from the snapshot (manse-v2, korean-saju).
 - HIDDEN_STEMS (지장간) and TWELVE_STAGES (12운성 of the day stem): fixed tables per branch.
 - SPOUSE_PALACE (日支) and SPOUSE_STAR (財星 for male, 官星 for female, by gender_for_daewoon).
 - ELEMENTS: surface 五行 count, and a second count including every hidden stem.

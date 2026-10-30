@@ -15,11 +15,12 @@ uv run uvicorn fateweave.api:app --reload   # run app / 앱 실행
 
 Env vars / 환경변수: `FATEWEAVE_DATABASE_URL`, `FATEWEAVE_MCP_KEY`, `FATEWEAVE_PUBLIC_HOST`.
 
-## 계산 정책 manse-v1 / Calculation policy
+## 계산 정책 manse-v2 / Calculation policy
 
 - KST 표준 자오선 135°E. 출생지 경도 보정 `KST + (경도 − 135) × 4분` (서울 126.9784°E = −32.09분). 균시차는 적용하지 않는다(지방평균태양시).
 - 야자시 분리 (`yaja_si_separated=True`): 23:00–24:00(보정 시각)은 당일 일주.
 - 예: 1990-01-01 09:00 서울 → 08:27:55 → **壬辰시**. 서울의 辰/巳 경계는 09:32:05 KST(09:35 → 癸巳). korean-saju README 예제의 癸巳는 보정 전 값이다(라이브러리 0.3.0 코드는 보정을 적용함).
+- **시주 경계 근접 (manse-v2):** 출생 시각을 알아도 입력 시각 ±15분 안에서 시주(자시 근처면 일주)가 바뀌면 `PARTIAL` + `HOUR_BOUNDARY_NEAR` 경고(경계까지 남은 분) + 대안 명식을 낸다. 기록된 출생 시각은 반올림된 경우가 많기 때문이다. 예: 서울 09:35 입력은 辰/巳 경계(09:32:05)에서 3분 → 壬辰이 대안.
 - 출생시간 미상: `hour_pillar = null`이며 임의 시각을 확정 결과로 저장하지 않는다. 그 날짜 전체를 검토해 자정·절기 경계로 연·월·일주가 달라질 수 있으면 `PARTIAL` + 대안 명식 + `BOUNDARY_REVIEW_REQUIRED` 경고를 낸다.
 - 독립 검증 근거와 출처: `tests/fixtures/verified_manse_cases.json`.
 

@@ -1,6 +1,6 @@
 {
   "policy": {
-    "version": "manse-v1",
+    "version": "manse-v2",
     "library": "korean-saju==0.3.0",
     "civil_time": "birth wall-clock time is read as fixed UTC+9 (KST); historical Korean offsets (LMT +8:27:52 to 1908-04-01, UTC+8:30 1908-1911 and 1954-1961, DST 1948-1960 and 1987-1988) are NOT applied, only flagged as CIVIL_TIME_OFFSET alternatives",
     "year_pillar": "立春 instant (absolute time)",
@@ -11,7 +11,8 @@
     "equation_of_time": "not applied",
     "default_longitude": 126.9784,
     "yaja_si_separated": true,
-    "unknown_birth_time": "hour_pillar = null, never a guessed hour; the whole birth date is scanned and any differing year/month/day pillar set is returned as an alternative with certainty PARTIAL + BOUNDARY_REVIEW_REQUIRED"
+    "unknown_birth_time": "hour_pillar = null, never a guessed hour; the whole birth date is scanned and any differing year/month/day pillar set is returned as an alternative with certainty PARTIAL + BOUNDARY_REVIEW_REQUIRED",
+    "hour_boundary_margin": "a known birth time is scanned +-15 min (wall clock, minute steps); a different pillar set there is an alternative with reason HOUR_BOUNDARY_NEAR, certainty PARTIAL and the HOUR_BOUNDARY_NEAR warning"
   },
   "library_readme_discrepancy": "korean-saju 0.3.0 README (dist-info METADATA, 'Saju.from_birth' example) prints 己巳 丙子 丙寅 癸巳 for 1990-01-01 09:00 KST at longitude 126.9784. The 0.3.0 source does not produce that: solar_time/solar_time_correction.py applies (longitude - KOREAN_STANDARD_MERIDIAN 135.0) * 4.0 min, so 09:00 KST becomes 08:27:55 and saju.from_birth returns hour 壬辰 (verified 2026-10-25 against the installed package). The README example is the no-correction value. Fateweave follows the code and an independent calculation (test_manse.independent_hour_pillar), not the README text.",
   "independent_references": {
@@ -23,8 +24,20 @@
   "cases": [
     {
       "id": "known_1990",
-      "input": {"birth_date": "1990-01-01", "calendar": "solar", "birth_time": "09:00", "gender_for_daewoon": "male", "longitude": null},
-      "expected": {"year_pillar": "己巳", "month_pillar": "丙子", "day_pillar": "丙寅", "hour_pillar": "壬辰", "certainty": "CONFIRMED"},
+      "input": {
+        "birth_date": "1990-01-01",
+        "calendar": "solar",
+        "birth_time": "09:00",
+        "gender_for_daewoon": "male",
+        "longitude": null
+      },
+      "expected": {
+        "year_pillar": "己巳",
+        "month_pillar": "丙子",
+        "day_pillar": "丙寅",
+        "hour_pillar": "壬辰",
+        "certainty": "CONFIRMED"
+      },
       "policy": "manse-v1 (Seoul longitude assumed, local mean solar time correction)",
       "source": {
         "year": "1990 立春 = 1990-02-04 11:14 KST (bebeyam 1990 table; HKO T1990c: 立春 1990-02-04). Birth precedes it, so the 立春-year is 1989 = 己巳 ((1989-4) mod 60 = 5).",
@@ -36,20 +49,50 @@
     },
     {
       "id": "known_1990_0935",
-      "input": {"birth_date": "1990-01-01", "calendar": "solar", "birth_time": "09:35", "gender_for_daewoon": "male", "longitude": 126.9784},
-      "expected": {"year_pillar": "己巳", "month_pillar": "丙子", "day_pillar": "丙寅", "hour_pillar": "癸巳", "certainty": "CONFIRMED"},
+      "input": {
+        "birth_date": "1990-01-01",
+        "calendar": "solar",
+        "birth_time": "09:35",
+        "gender_for_daewoon": "male",
+        "longitude": 126.9784
+      },
+      "expected": {
+        "year_pillar": "己巳",
+        "month_pillar": "丙子",
+        "day_pillar": "丙寅",
+        "hour_pillar": "癸巳",
+        "certainty": "PARTIAL",
+        "alternative_hour_pillar": "壬辰"
+      },
       "policy": "manse-v1 (Seoul longitude, local mean solar time correction)",
       "source": {
         "year_month_day": "same as known_1990 (independent references above).",
         "hour": "09:35 KST at 126.9784E = 09:02:55 local mean time, 巳時 (09-11). 五鼠遁 for a 丙 day starts 子 at 戊子, so 巳 = 癸巳."
       },
-      "notes": "Shows where 癸巳 starts under manse-v1: the 辰/巳 boundary for Seoul is 09:32:05 KST (09:00 local mean time). 09:32 KST -> 08:59:55 -> 壬辰; 09:33 KST -> 09:00:55 -> 癸巳."
+      "notes": "Shows where 癸巳 starts under manse-v1: the 辰/巳 boundary for Seoul is 09:32:05 KST (09:00 local mean time). 09:32 KST -> 08:59:55 -> 壬辰; 09:33 KST -> 09:00:55 -> 癸巳. manse-v2: 09:35 KST is 3 min after the 辰/巳 boundary (09:32:05 KST at Seoul), so 壬辰 is an HOUR_BOUNDARY_NEAR alternative and the chart is PARTIAL."
     },
     {
       "id": "yaja_1994",
-      "input": {"birth_date": "1994-04-28", "calendar": "solar", "birth_time": "23:40", "gender_for_daewoon": "male", "longitude": 126.9784},
-      "expected": {"year_pillar": "甲戌", "month_pillar": "戊辰", "day_pillar": "甲申", "hour_pillar": "丙子", "certainty": "CONFIRMED"},
-      "contrast": {"yaja_si_separated": false, "day_pillar": "乙酉", "hour_pillar": "丙子"},
+      "input": {
+        "birth_date": "1994-04-28",
+        "calendar": "solar",
+        "birth_time": "23:40",
+        "gender_for_daewoon": "male",
+        "longitude": 126.9784
+      },
+      "expected": {
+        "year_pillar": "甲戌",
+        "month_pillar": "戊辰",
+        "day_pillar": "甲申",
+        "hour_pillar": "丙子",
+        "certainty": "PARTIAL",
+        "alternative_hour_pillar": "乙亥"
+      },
+      "contrast": {
+        "yaja_si_separated": false,
+        "day_pillar": "乙酉",
+        "hour_pillar": "丙子"
+      },
       "policy": "manse-v1 (yaja-si separated: AST 23:00-24:00 keeps the same calendar day; hour stem from next day)",
       "source": {
         "year": "1994 立春 = 1994-02-04 10:31 KST (bebeyam 1994; HKO T1994c: 立春 1994-02-04); 1994 = 甲戌 ((1994-4) mod 60 = 10).",
@@ -57,7 +100,7 @@
         "day": "1994-04-28: index 20 = 甲申 (JDN 2449471); 1994-04-29: index 21 = 乙酉 (JDN 2449472).",
         "hour": "23:40 KST at 126.9784E = 23:07:55 local mean time, 子時 (yaja-si). Hour stem uses the next day's stem 乙: 乙庚 → 丙子."
       },
-      "notes": "Separated yaja-si keeps 甲申 for the day; the unified (single 子時) school moves the day to 乙酉. Hour pillar 丙子 in both."
+      "notes": "Separated yaja-si keeps 甲申 for the day; the unified (single 子時) school moves the day to 乙酉. Hour pillar 丙子 in both. manse-v2: 23:40 KST (23:08 local mean time) is 8 min after the 子時 boundary, so 乙亥 is an HOUR_BOUNDARY_NEAR alternative and the chart is PARTIAL."
     }
   ]
 }

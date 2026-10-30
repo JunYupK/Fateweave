@@ -126,7 +126,7 @@ async def test_markdown_is_deterministic_and_ordered(engine: AsyncEngine):
     for needle in (
         str(rid),
         str(prepared.analysis_id),
-        "manse-v1",
+        "manse-v2",
         "rules-v2",
         "report-v1",
         "claude-test",
@@ -329,7 +329,7 @@ async def test_get_markdown_includes_versions_and_caveats(engine: AsyncEngine):
     assert view.format == "markdown" and view.report_type == "individual"
     assert view.analysis_id == prepared.analysis_id
     assert (view.manse_version, view.rule_version, view.report_schema_version) == (
-        "manse-v1",
+        "manse-v2",
         "rules-v2",
         "report-v1",
     )

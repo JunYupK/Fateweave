@@ -30,7 +30,7 @@ def test_settings_repr_hides_key(monkeypatch):
     assert SECRET not in repr(s)
     assert SECRET not in str(s)
     assert s.mcp_key.get_secret_value() == SECRET
-    assert s.MANSE_POLICY_VERSION == "manse-v1"
+    assert s.MANSE_POLICY_VERSION == "manse-v2"
     assert s.RULE_VERSION == "rules-v2"
     assert s.REPORT_SCHEMA_VERSION == "report-v1"
 

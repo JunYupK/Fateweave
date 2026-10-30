@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         env_prefix="FATEWEAVE_", env_file=".env", extra="ignore", env_ignore_empty=True
     )
 
-    MANSE_POLICY_VERSION: ClassVar[str] = "manse-v1"
+    MANSE_POLICY_VERSION: ClassVar[str] = "manse-v2"
     RULE_VERSION: ClassVar[str] = "rules-v2"
     REPORT_SCHEMA_VERSION: ClassVar[str] = "report-v1"
 
