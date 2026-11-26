@@ -21,7 +21,14 @@ from fateweave.models.reports import Claim, ReportDraft
 
 FILLER = "가나다라 마바사. "
 DISCLAIMER = "의학적 진단이 아니며 몸에 이상이 있으면 의료진과 상담하세요."
-CITED = ("TEN_GOD_DISTRIBUTION", "APTITUDE_CUES", "KINSHIP", "PALACES", "LUCK_FLOW")
+CITED = (
+    "TEN_GOD_DISTRIBUTION",
+    "APTITUDE_CUES",
+    "KINSHIP",
+    "PALACES",
+    "LUCK_FLOW",
+    "SPOUSE_STAR",
+)
 
 
 @lru_cache
@@ -105,12 +112,14 @@ def test_required_sections():
         "wealth",
         "health",
         "family_relations",
+        "love_marriage",
         "life_flow",
         "year_flow",
     )
     mins = {s.key: s.min_chars for s in SECTIONS["general"]}
     assert mins["temperament"] == mins["career"] == mins["family_relations"] == 1000
-    assert sum(mins.values()) == 5600
+    assert mins["love_marriage"] == 600
+    assert sum(mins.values()) == 6200
 
 
 def test_short_strengthened_section():
@@ -204,3 +213,15 @@ def test_hour_unknown_spouse_star_is_not_absent():
         e for e in build_individual_evidence(snap, "self") if e.rule_code == "SPOUSE_STAR"
     )
     assert individual.id == general.id and "확인 불가" not in individual.text_ko
+
+
+def test_love_marriage_needs_spouse_evidence():
+    assert check(drop_rule="SPOUSE_STAR") == ["UNSUPPORTED_CLAIM"]
+
+
+def test_general_guide_covers_love_but_not_marriage_years():
+    g = writing_guide("general")
+    love = next(s for s in g["sections"] if s["key"] == "love_marriage")
+    assert love["title"] == "연애와 결혼" and "결혼 리포트" in love["covers"]
+    assert not any("요약에 한 줄만" in r for r in g["style_rules"])
+    assert any("결혼 시기 연도는 쓰지 않" in r for r in g["style_rules"])

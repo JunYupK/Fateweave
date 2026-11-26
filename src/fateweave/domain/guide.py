@@ -194,7 +194,7 @@ GENERAL: tuple[Section, ...] = (
         300,
         600,
         "명식 한 줄(쉬운 말로), 성향·직업·관계의 핵심, 인생 흐름의 큰 그림, 도움이 되는 기운 한 "
-        "줄, 결혼은 '결혼 리포트 참고' 한 줄.",
+        "줄, 연애·결혼의 핵심 한 줄.",
     ),
     Section(
         "temperament",
@@ -237,6 +237,15 @@ GENERAL: tuple[Section, ...] = (
         "궁위(PALACES: 연주=조상·어린 시절, 월주=부모·형제·사회, 일주=나·배우자, 시주=자녀·말년)와 "
         "그 자리의 기운, 육친(KINSHIP)의 위치와 강약, 기둥끼리의 합충을 가족 자리로 읽기, 친구·"
         "동료 관계는 비겁 분포로.",
+    ),
+    Section(
+        "love_marriage",
+        "연애와 결혼",
+        600,
+        1200,
+        "연애할 때의 성향과 매력(SINSAL의 도화·홍염 등), 잘 맞는 배우자(SPOUSE_PALACE·SPOUSE_STAR·"
+        "KINSHIP의 배우자), 인연이 강해지는 10년 구간(LUCK_FLOW의 spouse_star). 결혼 시기 연도는 "
+        "쓰지 않고, 자세한 시기와 배우자상은 결혼 리포트에서 볼 수 있다고 한 줄로 잇는다.",
     ),
     Section(
         "life_flow",
@@ -289,6 +298,7 @@ GENERAL_REQUIRED_CITATIONS: tuple[tuple[str, ...], ...] = (
     ("APTITUDE_CUES",),
     ("KINSHIP", "PALACES"),
     ("LUCK_FLOW",),
+    ("SPOUSE_PALACE", "SPOUSE_STAR"),
 )
 SCORE_RULE = "COMPAT_SCORE"
 MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters (rules-v2..v5)
@@ -343,11 +353,12 @@ GENERAL_STYLE_RULES: tuple[str, ...] = (
     "건강은 전통 체질론일 뿐 진단이 아니다. health 섹션에 '의학적 진단이 아니며 이상이 있으면 "
     "의료진과 상담'이라는 문장을 넣고(없으면 HEALTH_DISCLAIMER_MISSING), 병명·약·복용·처방 같은 "
     "말은 쓰지 않는다(HEALTH_MEDICAL_CLAIM).",
-    "결혼은 요약에 한 줄만 쓰고 결혼 리포트를 권한다. 결혼 시기 연도는 쓰지 않는다.",
+    "연애와 결혼은 love_marriage 섹션에서 성향·매력·맞는 배우자·인연이 강해지는 10년 구간까지 "
+    "쓴다. 결혼 시기 연도는 쓰지 않고 자세한 시기와 배우자상은 결혼 리포트를 권한다.",
     "출생 시각 미상·경계·전통 해석이라는 한계는 caveats에 한 번 쓴다(비어 있으면 MISSING_CAVEATS). "
     "'확인 불가'로 표시된 기운·가족 자리는 없다고 단정하지 않는다.",
-    "TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW를 각각 인용하는 claim이 "
-    "최소 1개씩 필요하다.",
+    "TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW, SPOUSE_PALACE 또는 "
+    "SPOUSE_STAR를 각각 인용하는 claim이 최소 1개씩 필요하다.",
 )
 
 
