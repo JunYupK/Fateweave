@@ -127,7 +127,7 @@ async def test_markdown_is_deterministic_and_ordered(engine: AsyncEngine):
         str(rid),
         str(prepared.analysis_id),
         "manse-v2",
-        "rules-v5",
+        "rules-v6",
         "compat_score_version: compat-score-v1",
         "timing_score_version: timing-score-v1",
         "report-v1",
@@ -332,7 +332,7 @@ async def test_get_markdown_includes_versions_and_caveats(engine: AsyncEngine):
     assert view.analysis_id == prepared.analysis_id
     assert (view.manse_version, view.rule_version, view.report_schema_version) == (
         "manse-v2",
-        "rules-v5",
+        "rules-v6",
         "report-v1",
     )
     assert view.evidence_digest == evidence_digest(prepared.evidence_catalog)

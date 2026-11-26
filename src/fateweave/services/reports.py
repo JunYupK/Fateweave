@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from fateweave.domain.guide import required_sections, section_labels
 from fateweave.domain.rules import evidence_digest
 from fateweave.domain.validation import PROBABILITY_PATTERNS, validate_report
-from fateweave.models.facts import PreparedAnalysis
+from fateweave.models.facts import Mode, PreparedAnalysis
 from fateweave.models.reports import ReportDraft, ValidationError
 from fateweave.services.analysis import AnalysisError, prepared_from_row
 from fateweave.storage.repository import AnalysisRepository
@@ -30,7 +30,11 @@ MARKDOWN_RENDERER_VERSION = "md-v1"
 VALIDATION_BADGE = "검증 범위: structured_fact_validation (구조화된 계산 주장만 기계 검증됨)"
 _IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
-_TITLES = {"individual": "개인 결혼 사주 리포트", "couple": "커플 궁합 리포트"}
+_TITLES = {
+    "individual": "개인 결혼 사주 리포트",
+    "couple": "커플 궁합 리포트",
+    "general": "종합 사주 리포트",
+}
 _SECTION_LABELS = section_labels()
 
 
@@ -358,13 +362,13 @@ class ReportService:
         )
 
     async def list_reports(
-        self, mode: Literal["individual", "couple"] | None = None, limit: int = 20
+        self, mode: Mode | None = None, limit: int = 20
     ) -> list[ReportSummary]:
         if isinstance(limit, bool) or not isinstance(limit, int):
             raise ReportError("INVALID_INPUT", f"limit must be 1..{MAX_LIST_LIMIT}")
         if not 1 <= limit <= MAX_LIST_LIMIT:
             raise ReportError("INVALID_INPUT", f"limit must be 1..{MAX_LIST_LIMIT}")
-        if mode not in (None, "individual", "couple"):
+        if mode not in (None, "individual", "couple", "general"):
             raise ReportError("INVALID_INPUT", "mode must be 'individual' or 'couple'")
         try:
             async with self._sessionmaker() as session:

@@ -45,6 +45,8 @@ REDUCED_ASSUMPTION = (
 
 def scoring_versions(mode: str) -> dict[str, str]:
     """Policy versions of the scores in a prepared analysis (recorded with the snapshot)."""
+    if mode == "general":
+        return {}  # no scores: flows only
     versions = {"timing_score": timing.TIMING_VERSION}
     if mode == "couple":
         versions["compat_score"] = policies.DEFAULT_VERSION

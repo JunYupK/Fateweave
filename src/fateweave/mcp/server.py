@@ -15,7 +15,7 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 from fateweave.domain.validation import REQUIRED_SECTIONS
-from fateweave.models.facts import PreparedAnalysis
+from fateweave.models.facts import Mode, PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
 from fateweave.models.reports import ReportDraft
 from fateweave.services.analysis import AnalysisError, AnalysisService
@@ -55,9 +55,11 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
 섹션별로 다룰 내용, 최소 분량(min_chars), 문체 규칙을 정한다. 반드시 따른다.
    - individual 필수 sections: {_sections("individual")}
    - couple 필수 sections: {_sections("couple")}
-   - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 5%를 넘으면 \
-`HANJA_HEAVY`가 된다. 본문은 한글로 쓴다 (예: 을미 일주, 정재, 도화살). 명리 용어는 일상 언어로 \
-풀어 쓴다.
+   - general 필수 sections: {_sections("general")} (mode `general` = 종합 사주, profile 1개)
+   - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 1%를 넘으면 \
+`HANJA_HEAVY`가 된다. 명리 용어(십성·간지·12운성·신살 이름 등)는 쓰지 않고 \
+`writing_guide.plain_terms`의 뜻으로 쓴다. '천간 무토가 상관이라' 대신 '겉으로 드러나는 \
+기운이 틀을 깨는 표현력이라'처럼 쓴다. 용어가 섹션 300자당 1개를 넘으면 `JARGON_HEAVY`가 된다.
    - 해석 깊이: 신강약(STRENGTH: 두 관법과 종합 판정), 외격(SPECIAL_STRUCTURE), 용신 후보\
 (YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), 배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, \
 학파 의존 판단은 방법론을 밝힌다. 외격이 성립하지 않으면 종격 해석을 하지 않는다.
@@ -71,6 +73,11 @@ evidence로 총점·등급·네 영역 점수와 근거를 쓴다. 궁합 지수
 COMPAT_SCORE를 인용하고 computed_values에 score를 적은 computed claim이 1개 필요하다. 본문의 \
 점수가 서버 값과 다르면 `SCORE_MISMATCH`, 공통 후보가 아닌 해를 공통 유리 시기·최적의 해로 \
 쓰면 `TIMING_NOT_CANDIDATE`가 된다.
+   - 종합 사주(general): 성향·직업·인간관계 섹션을 가장 깊게, 기운 → 일상 → 장단점 순으로 쓴다. \
+TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW를 각각 인용하는 claim이 \
+필요하다. 한계는 `caveats`에 한 번 쓴다(없으면 `MISSING_CAVEATS`). 건강은 전통 체질론이며 \
+진단이 아니라는 문장과 의료진 상담 문장을 넣고 병명·약 이름은 쓰지 않는다. 결혼은 한 줄만, \
+결혼 시기 연도는 쓰지 않는다.
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
 `computed_values`에 해당 evidence `operands`의 값을 그대로 적는다 (한자·한글 표기 모두 허용).
    - draft에는 `evidence_catalog`의 evidence ID를 인용하는 kind `computed` claim이 최소 1개 \
@@ -78,11 +85,12 @@ COMPAT_SCORE를 인용하고 computed_values에 score를 적은 computed claim�
 `VALIDATION_FAILED`가 된다.
    - 해석적 판단은 kind `interpretation` claim으로 분리하고 evidence ID를 인용한다.
    - 결혼 확률·퍼센트(probability)나 O/X 판정을 절대 쓰지 않는다. 출생 시각 미상이나 \
-경계(boundary) 불확실성은 limitations와 caveats에 한 번 밝힌다.
+경계(boundary) 불확실성은 limitations와 caveats에 한 번 밝힌다 (general은 caveats에만).
 3. 새 `idempotency_key`(예: UUID)로 `finalize_report`를 호출한다. 같은 draft를 재시도할 때만 \
 같은 키를 다시 쓴다.
 4. 응답 `status`가 `FINALIZED`일 때에만 사용자에게 "저장되었다"고 말하고 `report_id`를 알려준다. \
-그 전에는 저장되었다고 말하지 않는다.
+그 전에는 저장되었다고 말하지 않는다. individual 리포트가 FINALIZED되면, 같은 생년월일로 \
+종합 사주(mode `general`)도 볼지 사용자에게 한 번 제안한다.
 5. `VALIDATION_FAILED`이면 `validation_errors`를 보고 draft를 고쳐 새 `idempotency_key`로 \
 다시 `finalize_report`를 호출한다. `REPORT_CONFLICT`/`IDEMPOTENCY_CONFLICT`는 이미 저장된 \
 리포트가 있다는 뜻이니 `get_report`/`list_reports`로 확인한다.
@@ -129,7 +137,7 @@ def create_mcp_server(services: ServiceContainer) -> MCPServer:
         ),
     )
     async def prepare_analysis(
-        mode: Literal["individual", "couple"],
+        mode: Mode,
         profiles: list[BirthProfileInput],
         horizon_years: int = 10,
     ) -> PreparedAnalysis:
@@ -184,7 +192,7 @@ def create_mcp_server(services: ServiceContainer) -> MCPServer:
         ),
     )
     async def list_reports(
-        mode: Literal["individual", "couple"] | None = None, limit: int = 20
+        mode: Mode | None = None, limit: int = 20
     ) -> list[ReportSummary]:
         """List saved reports, newest first (no birth data)."""
         return await _guard("list_reports", services.reports.list_reports(mode, limit))

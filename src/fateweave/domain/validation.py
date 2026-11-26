@@ -9,7 +9,18 @@ from typing import Any
 
 from fateweave.domain.assessments import COMPONENT_KO
 from fateweave.domain.glossary import hanja_count, same_value
-from fateweave.domain.guide import MAX_HANJA_RATIO, SECTIONS, TIMING_RULES, required_sections
+from fateweave.domain.guide import (
+    GENERAL_REQUIRED_CITATIONS,
+    JARGON_EXEMPT,
+    MAX_HANJA_RATIO,
+    PLAIN_MAX_HANJA_RATIO,
+    PLAIN_RULE_VERSION,
+    SECTIONS,
+    TIMING_RULES,
+    required_sections,
+    rule_version_number,
+)
+from fateweave.domain.plain import PLAIN_TERMS, jargon_limit, jargon_terms
 from fateweave.models.facts import Evidence, PreparedAnalysis
 from fateweave.models.reports import Claim, ReportDraft, ValidationError, ValidationResult
 
@@ -51,6 +62,16 @@ _NEGATION = re.compile(r"아니|아님|않|없|제외|빠지|빠진|빠져|빠�
 _YEAR_RANGE = re.compile(r"(?:19|20)\d{2}\s*(?:년\s*)?[~\-–]\s*(?:(?:19|20)\d{2}|\d{2})")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)(?!\s*년?\s*생)")  # not "1990년생"
 _SENTENCE = re.compile(r"(?<=[.!?。])\s+|\n")
+
+# general (rules-v6): the health section is a traditional constitution reading, never medicine.
+HEALTH_REFERRAL = re.compile(r"의료|병원|전문의|의사")
+HEALTH_NEGATION = re.compile(r"아니|않")
+# Named conditions are never allowed; generic medical words only inside the disclaimer.
+HEALTH_NAMED_CONDITIONS = re.compile(
+    r"고혈압|저혈압|당뇨|우울증|불면증|갑상선|디스크|관절염|위염|간염|폐렴|천식|비염|아토피|치매"
+    r"|뇌졸중|심근경색|협심증|종양"
+)
+HEALTH_GENERIC_TERMS = re.compile(r"질환|처방|복용|수술|약물|한약|영양제|치료")
 
 _MISSING = object()
 
@@ -172,8 +193,24 @@ def _check_interpretation(
     return errors
 
 
-def _check_depth(draft: ReportDraft) -> list[ValidationError]:
-    """rules-v2: minimum section length and a hangul-first style (few hanja per section)."""
+def _jargon_error(key: str, text: str) -> ValidationError | None:
+    found = jargon_terms(text)
+    limit = jargon_limit(text)
+    if len(found) <= limit:
+        return None
+    shown = ", ".join(f"{t}→{PLAIN_TERMS[t]}" for t in list(dict.fromkeys(found))[:5])
+    return _err(
+        "JARGON_HEAVY",
+        f"section {key} uses {len(found)} myeongri terms (allowed {limit} for {len(text)} chars); "
+        f"write their meaning instead (writing_guide.plain_terms): {shown}",
+        f"sections.{key}",
+    )
+
+
+def _check_depth(draft: ReportDraft, rule_version: str) -> list[ValidationError]:
+    """rules-v2: minimum section length and few hanja; rules-v6: plain language (no jargon)."""
+    plain = rule_version_number(rule_version) >= PLAIN_RULE_VERSION
+    max_hanja = PLAIN_MAX_HANJA_RATIO if plain else MAX_HANJA_RATIO
     errors: list[ValidationError] = []
     for sec in SECTIONS[draft.report_type]:
         text = draft.sections.get(sec.key, "").strip()
@@ -186,17 +223,20 @@ def _check_depth(draft: ReportDraft) -> list[ValidationError]:
                     f"sections.{sec.key}",
                 )
             )
+    exempt = JARGON_EXEMPT.get(draft.report_type, frozenset())
     for key, text in draft.sections.items():
         count = hanja_count(text)
-        if len(text) >= 100 and count / len(text) > MAX_HANJA_RATIO:
+        if len(text) >= 100 and count / len(text) > max_hanja:
             errors.append(
                 _err(
                     "HANJA_HEAVY",
                     f"section {key} uses {count} hanja characters; write terms in hangul "
-                    f"(e.g. 을미, 정재) and keep hanja under {MAX_HANJA_RATIO:.0%}",
+                    f"(e.g. 을미, 정재) and keep hanja under {max_hanja:.0%}",
                     f"sections.{key}",
                 )
             )
+        if plain and key not in exempt and (err := _jargon_error(key, text)) is not None:
+            errors.append(err)
     return errors
 
 
@@ -282,6 +322,60 @@ def _check_candidate_years(
     return errors
 
 
+def _check_general(draft: ReportDraft, catalog: dict[str, Evidence]) -> list[ValidationError]:
+    """Required citations, caveats and the health section of a general report."""
+    errors: list[ValidationError] = []
+    cited = {
+        catalog[eid].rule_code for c in draft.claims for eid in c.evidence_ids if eid in catalog
+    }
+    for group in GENERAL_REQUIRED_CITATIONS:
+        if not cited & set(group):
+            errors.append(
+                _err(
+                    "UNSUPPORTED_CLAIM",
+                    f"the general report needs a claim citing {' or '.join(group)} evidence",
+                    "claims",
+                )
+            )
+    if not any(c.strip() for c in draft.caveats):
+        errors.append(
+            _err(
+                "MISSING_CAVEATS",
+                "state the limits (birth time, boundaries, traditional reading) once in caveats",
+                "caveats",
+            )
+        )
+    health = draft.sections.get("health", "")
+    if health.strip():
+        if "진단" not in health or not HEALTH_REFERRAL.search(health):
+            errors.append(
+                _err(
+                    "HEALTH_DISCLAIMER_MISSING",
+                    "the health section must say it is not a medical diagnosis and to see a "
+                    "doctor (의료진) when something is wrong",
+                    "sections.health",
+                )
+            )
+        for sentence in _SENTENCE.split(health):
+            disclaimer = HEALTH_REFERRAL.search(sentence) or (
+                "진단" in sentence and HEALTH_NEGATION.search(sentence)
+            )
+            m = HEALTH_NAMED_CONDITIONS.search(sentence) or (
+                None if disclaimer else HEALTH_GENERIC_TERMS.search(sentence)
+            )
+            if m:
+                errors.append(
+                    _err(
+                        "HEALTH_MEDICAL_CLAIM",
+                        f"the health section names a disease or treatment ({m.group(0)}); keep "
+                        "to the traditional constitution reading",
+                        "sections.health",
+                    )
+                )
+                break
+    return errors
+
+
 def _cites_server_evidence(claim: Claim, catalog: dict[str, Evidence]) -> bool:
     return claim.kind == "computed" and any(eid in catalog for eid in claim.evidence_ids)
 
@@ -322,7 +416,7 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
             errors.append(_err("MISSING_SECTION", f"section {name} is blank", f"sections.{name}"))
 
     if run.rule_version != "rules-v1":
-        errors.extend(_check_depth(draft))
+        errors.extend(_check_depth(draft, run.rule_version))
 
     catalog = {ev.id: ev for ev in run.evidence_catalog}
     for i, claim in enumerate(draft.claims):
@@ -363,6 +457,12 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
     texts = [(f"sections.{k}", v) for k, v in draft.sections.items()]
     texts += [(f"claims.{i}.statement", c.statement) for i, c in enumerate(draft.claims)]
     texts += [(f"caveats.{i}", c) for i, c in enumerate(draft.caveats)]
+    if (
+        draft.report_type == "general"
+        and run.mode == "general"
+        and rule_version_number(run.rule_version) >= PLAIN_RULE_VERSION
+    ):
+        errors.extend(_check_general(draft, catalog))
     if draft.report_type == "couple" and run.mode == "couple":
         errors.extend(_check_scores(draft, catalog, texts))
         errors.extend(_check_candidate_years(catalog, texts))

@@ -32,7 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Any, Literal
@@ -791,11 +791,21 @@ def sort_key(order: tuple[str, ...]) -> Callable[[Evidence], tuple[Any, ...]]:
 
 def build_individual_evidence(chart: ChartSnapshot, subject_key: str) -> list[Evidence]:
     """Deterministic evidence catalog for one chart, sorted by rule order then sequence/id."""
+    return build_evidence(chart, subject_key, RULES, RULE_ORDER)
+
+
+def build_evidence(
+    chart: ChartSnapshot,
+    subject_key: str,
+    rules: Mapping[str, Callable[[ChartSnapshot], list[_Draft]]],
+    order: tuple[str, ...],
+) -> list[Evidence]:
+    """Run `rules` on one chart; boundary-flag drafts that depend on a differing pillar."""
     if not _SUBJECT_KEY.fullmatch(subject_key):
         raise ValueError(f"subject_key must match ^[A-Za-z0-9]+$; got {subject_key!r}")
     differing = _differing_positions(chart)
     evidence: list[Evidence] = []
-    for code, rule in RULES.items():
+    for code, rule in rules.items():
         for draft in rule(chart):
             assumptions = list(draft.assumptions)
             if draft.depends & differing:
@@ -814,4 +824,4 @@ def build_individual_evidence(chart: ChartSnapshot, subject_key: str) -> list[Ev
     ids = [e.id for e in evidence]
     if len(ids) != len(set(ids)):
         raise RuntimeError("evidence id collision: operands must distinguish items")
-    return sorted(evidence, key=sort_key(RULE_ORDER))
+    return sorted(evidence, key=sort_key(order))

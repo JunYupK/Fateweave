@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
+Mode = Literal["individual", "couple", "general"]
+
 
 class ChartWarning(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -125,7 +127,7 @@ class PreparedAnalysis(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     analysis_id: UUID
-    mode: Literal["individual", "couple"]
+    mode: Mode
     facts: dict[str, ChartSnapshot]
     evidence_catalog: list[Evidence]
     missing_data: list[str]

@@ -27,7 +27,7 @@ def _births(mode: str) -> list[BirthProfileInput]:
         gender_for_daewoon="female",
         longitude=127.0,
     )
-    if mode == "individual":
+    if mode in ("individual", "general"):
         return [first]
     second = BirthProfileInput(
         birth_date="1992-05-15",
@@ -54,6 +54,18 @@ async def test_couple_complete_without_external_llm(engine: AsyncEngine):
     report_id = await run_deterministic_e2e(engine, "couple", _births("couple"))
     assert isinstance(report_id, uuid.UUID)
     assert await _count(engine, "report_versions") == 1
+
+
+async def test_general_complete_without_external_llm(engine: AsyncEngine):
+    report_id = await run_deterministic_e2e(engine, "general", _births("general"))
+    view = await ReportService(make_sessionmaker(engine)).get_report(report_id)
+    md = view.content
+    assert md.startswith("# 종합 사주 리포트")
+    headings = ["핵심 요약", "타고난 성향과 기질", "직업과 적성", "재물운", "건강 체질",
+                "인간관계와 가족", "대운으로 본 인생 흐름", "올해와 가까운 몇 년"]  # fmt: skip
+    positions = [md.index(f"## {h}") for h in headings]
+    assert positions == sorted(positions)
+    assert view.scoring_versions == {}
 
 
 async def test_invalid_report_leaves_prepared_state(engine: AsyncEngine):
