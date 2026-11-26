@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
+from fateweave.domain.plain import PLAIN_TERMS
+
 
 class Section(NamedTuple):
     key: str
@@ -210,15 +212,19 @@ LEGACY_REQUIRED: dict[str, tuple[str, ...]] = {
 }
 TIMING_RULES = {"individual": "YEAR_TIMING", "couple": "COUPLE_TIMING"}
 SCORE_RULE = "COMPAT_SCORE"
-MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters
+MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters (rules-v2..v5)
+PLAIN_MAX_HANJA_RATIO = 0.01  # rules-v6+
+PLAIN_RULE_VERSION = 6  # first rule version with the plain-language checks
+# Sections exempt from JARGON_HEAVY: they exist to list the evidence the report relies on.
+JARGON_EXEMPT: dict[str, frozenset[str]] = {"individual": frozenset({"evidence_explanation"})}
 
 STYLE_RULES: tuple[str, ...] = (
-    "본문은 한글로 쓴다. 간지·십성·오행·신살은 한글 표기(예: 을미 일주, 정재, 목·화, 도화살)로 "
-    "쓰고, 한자는 꼭 필요할 때 첫 언급에만 괄호로 붙인다. 섹션마다 한자는 전체 글자의 5% 미만.",
+    "명리 용어는 쓰지 않고 writing_guide.plain_terms의 뜻으로 쓴다. '천간 무토가 상관이라'처럼 "
+    "용어를 이어 붙이지 않는다. 꼭 필요하면 섹션당 한두 번, 쉬운 말 뒤 괄호로만. 섹션 300자당 "
+    "1개를 넘으면 JARGON_HEAVY로 거절된다.",
+    "본문에 한자를 쓰지 않는다(claim의 computed_values는 예외). 섹션 한자 1% 초과는 HANJA_HEAVY.",
     "evidence의 text_ko는 이미 한글이다. operands의 한자 값은 claims의 computed_values에만 쓰며, "
     "computed_values에는 한자나 한글 표기 모두 허용된다.",
-    "명리 용어를 쓰면 바로 뒤에 일상 언어로 의미를 풀어 준다 (예: '편재(활동적이고 현실 감각이 "
-    "있는 배우자 기운)').",
     "단정·확률·O/X 대신 '전통적으로 ~로 본다', '~한 경향으로 읽힌다'처럼 해석임을 드러내되, "
     "같은 면책 문구를 섹션마다 반복하지 않는다 (limitations에 한 번).",
     "결혼 시기는 연도와 월까지 구체적으로 쓰고, 각 연도·월마다 어떤 단서(배우자성, 배우자궁 합 "
@@ -245,6 +251,11 @@ COUPLE_STYLE_RULES: tuple[str, ...] = (
 )
 
 
+def rule_version_number(version: str) -> int:
+    """'rules-v6' -> 6."""
+    return int(version.rsplit("-v", 1)[1])
+
+
 def required_sections(mode: str, rule_version: str) -> tuple[str, ...]:
     if rule_version == "rules-v1":
         return LEGACY_REQUIRED[mode]
@@ -267,6 +278,7 @@ def writing_guide(mode: str) -> dict[str, Any]:
         "minimum_total_chars": sum(s.min_chars for s in sections),
         "target_total_chars": sum(s.target_chars for s in sections),
         "required_timing_rule": TIMING_RULES[mode],
+        "plain_terms": dict(PLAIN_TERMS),
         "claims": (
             "핵심 계산값(일주, 배우자궁, 신강약, 상위 연도 등)은 computed claim으로, 해석은 "
             f"interpretation claim으로 남긴다. {TIMING_RULES[mode]} evidence를 인용하는 claim이 "

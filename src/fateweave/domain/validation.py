@@ -9,7 +9,17 @@ from typing import Any
 
 from fateweave.domain.assessments import COMPONENT_KO
 from fateweave.domain.glossary import hanja_count, same_value
-from fateweave.domain.guide import MAX_HANJA_RATIO, SECTIONS, TIMING_RULES, required_sections
+from fateweave.domain.guide import (
+    JARGON_EXEMPT,
+    MAX_HANJA_RATIO,
+    PLAIN_MAX_HANJA_RATIO,
+    PLAIN_RULE_VERSION,
+    SECTIONS,
+    TIMING_RULES,
+    required_sections,
+    rule_version_number,
+)
+from fateweave.domain.plain import PLAIN_TERMS, jargon_limit, jargon_terms
 from fateweave.models.facts import Evidence, PreparedAnalysis
 from fateweave.models.reports import Claim, ReportDraft, ValidationError, ValidationResult
 
@@ -172,8 +182,24 @@ def _check_interpretation(
     return errors
 
 
-def _check_depth(draft: ReportDraft) -> list[ValidationError]:
-    """rules-v2: minimum section length and a hangul-first style (few hanja per section)."""
+def _jargon_error(key: str, text: str) -> ValidationError | None:
+    found = jargon_terms(text)
+    limit = jargon_limit(text)
+    if len(found) <= limit:
+        return None
+    shown = ", ".join(f"{t}→{PLAIN_TERMS[t]}" for t in list(dict.fromkeys(found))[:5])
+    return _err(
+        "JARGON_HEAVY",
+        f"section {key} uses {len(found)} myeongri terms (allowed {limit} for {len(text)} chars); "
+        f"write their meaning instead (writing_guide.plain_terms): {shown}",
+        f"sections.{key}",
+    )
+
+
+def _check_depth(draft: ReportDraft, rule_version: str) -> list[ValidationError]:
+    """rules-v2: minimum section length and few hanja; rules-v6: plain language (no jargon)."""
+    plain = rule_version_number(rule_version) >= PLAIN_RULE_VERSION
+    max_hanja = PLAIN_MAX_HANJA_RATIO if plain else MAX_HANJA_RATIO
     errors: list[ValidationError] = []
     for sec in SECTIONS[draft.report_type]:
         text = draft.sections.get(sec.key, "").strip()
@@ -186,17 +212,20 @@ def _check_depth(draft: ReportDraft) -> list[ValidationError]:
                     f"sections.{sec.key}",
                 )
             )
+    exempt = JARGON_EXEMPT.get(draft.report_type, frozenset())
     for key, text in draft.sections.items():
         count = hanja_count(text)
-        if len(text) >= 100 and count / len(text) > MAX_HANJA_RATIO:
+        if len(text) >= 100 and count / len(text) > max_hanja:
             errors.append(
                 _err(
                     "HANJA_HEAVY",
                     f"section {key} uses {count} hanja characters; write terms in hangul "
-                    f"(e.g. 을미, 정재) and keep hanja under {MAX_HANJA_RATIO:.0%}",
+                    f"(e.g. 을미, 정재) and keep hanja under {max_hanja:.0%}",
                     f"sections.{key}",
                 )
             )
+        if plain and key not in exempt and (err := _jargon_error(key, text)) is not None:
+            errors.append(err)
     return errors
 
 
@@ -322,7 +351,7 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
             errors.append(_err("MISSING_SECTION", f"section {name} is blank", f"sections.{name}"))
 
     if run.rule_version != "rules-v1":
-        errors.extend(_check_depth(draft))
+        errors.extend(_check_depth(draft, run.rule_version))
 
     catalog = {ev.id: ev for ev in run.evidence_catalog}
     for i, claim in enumerate(draft.claims):

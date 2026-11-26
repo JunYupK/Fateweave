@@ -55,9 +55,10 @@ Fateweave는 전통 명리(myeongri) 해석으로 결혼 사주(individual)와 �
 섹션별로 다룰 내용, 최소 분량(min_chars), 문체 규칙을 정한다. 반드시 따른다.
    - individual 필수 sections: {_sections("individual")}
    - couple 필수 sections: {_sections("couple")}
-   - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 5%를 넘으면 \
-`HANJA_HEAVY`가 된다. 본문은 한글로 쓴다 (예: 을미 일주, 정재, 도화살). 명리 용어는 일상 언어로 \
-풀어 쓴다.
+   - 섹션이 `min_chars`보다 짧으면 `SECTION_TOO_SHORT`, 한자가 섹션의 1%를 넘으면 \
+`HANJA_HEAVY`가 된다. 명리 용어(십성·간지·12운성·신살 이름 등)는 쓰지 않고 \
+`writing_guide.plain_terms`의 뜻으로 쓴다. '천간 무토가 상관이라' 대신 '겉으로 드러나는 \
+기운이 틀을 깨는 표현력이라'처럼 쓴다. 용어가 섹션 300자당 1개를 넘으면 `JARGON_HEAVY`가 된다.
    - 해석 깊이: 신강약(STRENGTH: 두 관법과 종합 판정), 외격(SPECIAL_STRUCTURE), 용신 후보\
 (YONGSIN·JOHU), 지장간·12운성, 신살(SINSAL), 배우자성(SPOUSE_STAR)과 배우자궁을 모두 활용하고, \
 학파 의존 판단은 방법론을 밝힌다. 외격이 성립하지 않으면 종격 해석을 하지 않는다.
