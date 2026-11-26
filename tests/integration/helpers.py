@@ -6,7 +6,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from fateweave.domain.guide import SECTIONS, TIMING_RULES
+from fateweave.domain.guide import GENERAL_REQUIRED_CITATIONS, SECTIONS, TIMING_RULES
 from fateweave.models.facts import PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
 from fateweave.models.reports import Claim, ReportDraft
@@ -14,13 +14,18 @@ from fateweave.services.analysis import AnalysisService
 from fateweave.services.reports import ReportService
 from fateweave.storage.db import make_sessionmaker
 
+HEALTH_DISCLAIMER = "의학적 진단이 아니며 몸에 이상이 있으면 의료진과 상담하세요."
+
 
 def full_sections(mode: str) -> dict[str, str]:
     """Hangul sections at each rules-v2 minimum length."""
-    return {
+    sections = {
         s.key: f"{s.key} 본문. " + "전통 명리 해석 문장. " * (s.min_chars // 11 + 1)
         for s in SECTIONS[mode]
     }
+    if mode == "general":
+        sections["health"] = f"{HEALTH_DISCLAIMER} {sections['health']}"
+    return sections
 
 
 def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
@@ -58,6 +63,17 @@ def valid_draft(prepared: PreparedAnalysis, **overrides) -> ReportDraft:
                 statement="궁합 지수는 서버가 계산한 해석 지수다.",
             )
         )
+    if prepared.mode == "general":
+        for group in GENERAL_REQUIRED_CITATIONS:
+            item = next(e for e in prepared.evidence_catalog if e.rule_code in group)
+            claims.append(
+                Claim(
+                    kind="interpretation",
+                    rule_code=item.rule_code,
+                    evidence_ids=[item.id],
+                    statement="전통적으로 이렇게 읽는다.",
+                )
+            )
     cue = next((e for e in prepared.evidence_catalog if e.kind == "interpretation_cue"), None)
     if cue is not None:
         claims.append(

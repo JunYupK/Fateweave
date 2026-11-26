@@ -83,6 +83,13 @@ async def test_tools_list_exposes_exact_five_tools():
         assert needle in instructions
     for section in {*REQUIRED_SECTIONS["individual"], *REQUIRED_SECTIONS["couple"]}:
         assert section in instructions
+    for section in REQUIRED_SECTIONS["general"]:
+        assert section in instructions
+    assert "general 필수 sections" in instructions and "종합 사주" in instructions
+    assert "JARGON_HEAVY" in instructions and "plain_terms" in instructions
+    prepare_modes = by_name["prepare_analysis"]["inputSchema"]["properties"]["mode"]
+    assert "general" in str(prepare_modes)
+    assert "general" in str(by_name["list_reports"]["inputSchema"]["properties"]["mode"])
     assert [p["name"] for p in prompts] == ["fateweave_report_workflow"]
 
 

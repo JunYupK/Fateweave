@@ -215,3 +215,25 @@ async def test_input_errors_do_not_leak_birth_data(engine: AsyncEngine, kw):
     assert exc.value.code == "INVALID_INPUT"
     date_text = kw["birth_date"]
     assert date_text not in exc.value.message and date_text not in str(exc.value)
+
+
+async def test_prepare_general_persists_one_participant(engine: AsyncEngine):
+    svc = _service(engine)
+    prepared = await svc.prepare_analysis("general", [_profile()])
+    assert prepared.mode == "general" and list(prepared.facts) == ["self"]
+    codes = {e.rule_code for e in prepared.evidence_catalog}
+    assert "TEN_GOD_DISTRIBUTION" in codes and "LUCK_FLOW" in codes
+    assert not codes & {"DAEWOON_FLOW", "YEAR_TIMING", "MONTH_TIMING", "LIFE_TIMING"}
+    assert prepared.assessments == {} and prepared.scoring_versions == {}
+    assert prepared.writing_guide["required_timing_rule"] == "LUCK_FLOW"
+    async with engine.connect() as conn:
+        mode = (
+            await conn.execute(
+                text("SELECT mode FROM analysis_runs WHERE id = :i"),
+                {"i": prepared.analysis_id},
+            )
+        ).scalar_one()
+    assert mode == "general"
+    with pytest.raises(AnalysisError) as exc:
+        await svc.prepare_analysis("general", [_profile(), _profile()])
+    assert exc.value.code == "INVALID_INPUT"

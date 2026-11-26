@@ -6,7 +6,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,17 +16,18 @@ from fateweave.config import Settings
 from fateweave.domain.assessments import build_couple_assessments, scoring_versions
 from fateweave.domain.calendar import BirthInputError, normalize_birth
 from fateweave.domain.couple import build_couple_evidence
+from fateweave.domain.general import build_general_evidence
 from fateweave.domain.guide import writing_guide
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
-from fateweave.models.facts import ChartSnapshot, Evidence, PreparedAnalysis
+from fateweave.models.facts import ChartSnapshot, Evidence, Mode, PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
 from fateweave.storage.repository import AnalysisRepository, RunRow
 
 log = logging.getLogger(__name__)
 
 MIN_HORIZON, MAX_HORIZON = 1, 30
-_EXPECTED_PROFILES = {"individual": 1, "couple": 2}
+_EXPECTED_PROFILES = {"individual": 1, "couple": 2, "general": 1}
 
 
 class AnalysisError(Exception):
@@ -99,7 +100,7 @@ class AnalysisService:
 
     async def prepare_analysis(
         self,
-        mode: Literal["individual", "couple"],
+        mode: Mode,
         profiles: list[BirthProfileInput],
         horizon_years: int = 10,
     ) -> PreparedAnalysis:
@@ -116,7 +117,7 @@ class AnalysisService:
             )
 
         start_year = self._clock().year
-        keys = ["self"] if mode == "individual" else ["A", "B"]
+        keys = ["A", "B"] if mode == "couple" else ["self"]
         try:
             normalized = [normalize_birth(p) for p in profiles]
             charts = [
@@ -135,6 +136,8 @@ class AnalysisService:
         assessments: dict[str, Any] = {}
         if mode == "individual":
             catalog: list[Evidence] = build_individual_evidence(charts[0], "self")
+        elif mode == "general":
+            catalog = build_general_evidence(charts[0], "self")
         else:
             catalog = build_couple_evidence(charts[0], charts[1], start_year, years=horizon_years)
             assessments, scored = build_couple_assessments(
