@@ -6,7 +6,7 @@ import pytest
 
 from fateweave.domain import rules
 from fateweave.domain.calendar import normalize_birth
-from fateweave.domain.general import ten_god_distribution
+from fateweave.domain.general import build_general_evidence, kinship, ten_god_distribution
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
 from fateweave.models.facts import ChartSnapshot, Evidence
@@ -108,3 +108,47 @@ def test_unknown_hour_scales_thresholds():
         "官星": "normal",
         "印星": "normal",
     }
+
+
+# ---- Task 4: palaces and kinship ---------------------------------------------------------
+
+
+def test_palaces_known_and_unknown_hour(zi):
+    items = by_rule(build_general_evidence(zi), "PALACES")
+    assert [e.operands["palace"] for e in items] == [
+        "ancestry_youth",
+        "parents_siblings_society",
+        "self_spouse",
+        "children_later_life",
+    ]
+    month = next(e for e in items if e.operands["position"] == "month")
+    assert (month.operands["stem_ten_god"], month.operands["branch_ten_god"]) == ("傷官", "正印")
+    day = next(e for e in items if e.operands["position"] == "day")
+    assert day.operands["stem_ten_god"] is None
+    no_hour = by_rule(build_general_evidence(chart("1990-03-12", None, "male")), "PALACES")
+    assert no_hour[-1].operands == {
+        "index": 3,
+        "position": "hour",
+        "palace": "children_later_life",
+        "status": "unknown",
+    }
+    assert "태어난 시각" in no_hour[-1].text_ko
+
+
+def test_kinship_found_none_unconfirmed(zi):
+    k = {e["relative"]: e for e in kinship(jiazi(zi))}
+    assert list(k) == ["mother", "father", "siblings", "spouse", "son", "daughter"]
+    assert k["mother"]["status"] == "found" and k["mother"]["count"] == 4
+    assert k["father"]["status"] == "none" and k["father"]["count"] == 0
+    k2 = {e["relative"]: e for e in kinship(jiazi(zi, hour=False))}
+    assert k2["father"]["status"] == "unconfirmed" and k2["son"]["status"] == "unconfirmed"
+
+
+def test_kinship_hidden_hits_are_listed_not_counted(zi):
+    k = {e["relative"]: e for e in kinship(jiazi(zi))}
+    # 子's 餘氣 壬 is 偏印, not 正印: the mother count stays surface-only.
+    assert all(f["position"].endswith("_branch") for f in k["mother"]["found"])
+    as_female = zi.model_copy(update={"gender_for_daewoon": "female"})
+    female = {e["relative"]: e for e in kinship(as_female)}
+    assert female["spouse"]["ten_gods"] == ["正官", "偏官"]
+    assert female["son"]["ten_gods"] == ["傷官"] and female["son"]["status"] == "found"
