@@ -22,13 +22,14 @@ from typing import Any
 
 from korean_saju import GyeokgukCalculator
 
-from fateweave.domain import depth
+from fateweave.domain import depth, timing
 from fateweave.domain import tables as t
-from fateweave.domain.glossary import hangul
+from fateweave.domain.glossary import ELEMENT_KO, hangul
 from fateweave.domain.plain import PLAIN_TERMS
 from fateweave.domain.rules import (
     RULE_ORDER,
     RULES,
+    _daewoon_assumptions,
     _Draft,
     _pillars,
     _rules_ref,
@@ -60,6 +61,12 @@ DISTRIBUTION_ASSUMPTION = (
     "Fateweave design hypothesis: weight = surface + 0.5 x hidden (中氣 0.6, 餘氣 0.3); none 0, "
     "weak < 1.5, normal < 3, strong >= 3, thresholds scaled by known surface characters / 7"
 )
+
+
+def _eul(word: str) -> str:
+    """을/를 by the last syllable's final consonant."""
+    code = ord(word[-1]) - 0xAC00
+    return "을" if 0 <= code <= 11171 and code % 28 else "를"
 
 
 def _group_ko(group: str) -> str:
@@ -134,7 +141,7 @@ def ten_god_distribution(chart: ChartSnapshot) -> dict[str, Any]:
 def _distribution_rule(chart: ChartSnapshot) -> list[_Draft]:
     d = ten_god_distribution(chart)
     parts = [
-        f"{_group_ko(g)}({_plain_group(g)}) {LEVEL_KO[v['level']]}" for g, v in d["groups"].items()
+        f"{_group_ko(g)} {LEVEL_KO[v['level']]} — {_plain_group(g)}" for g, v in d["groups"].items()
     ]
     dominant = "·".join(_group_ko(g) for g in d["dominant"])
     text = f"기운 분포: {'; '.join(parts)}. 가장 두드러진 기운: {dominant}"
@@ -277,14 +284,15 @@ def kinship(chart: ChartSnapshot) -> list[dict[str, Any]]:
 def _kinship_rule(chart: ChartSnapshot) -> list[_Draft]:
     drafts = []
     for index, e in enumerate(kinship(chart)):
-        star = "·".join(PLAIN_TERMS[hangul(g)] for g in e["ten_gods"])
+        star = " / ".join(PLAIN_TERMS[hangul(g)] for g in e["ten_gods"])
         if e["status"] == "found":
             where = ", ".join(
                 f"{_POS_KO[f['position'].split('_')[0]]}주"
                 + ("(속)" if f["position"].endswith("_hidden") else "")
                 for f in e["found"]
             )
-            state = f"겉으로 {e['count']}번, 위치: {where}"
+            seen = f"겉으로 {e['count']}번" if e["count"] else "겉에는 없고 속에만 있음"
+            state = f"{seen}, 위치: {where}"
         elif e["status"] == "none":
             state = "명식에 보이지 않음"
         else:
@@ -293,7 +301,8 @@ def _kinship_rule(chart: ChartSnapshot) -> list[_Draft]:
             _Draft(
                 kind="rule_derived",
                 operands={"index": index, **e},
-                text_ko=f"{RELATIVE_KO[e['relative']]}를 나타내는 기운({star}): {state}",
+                text_ko=f"{RELATIVE_KO[e['relative']]}{_eul(RELATIVE_KO[e['relative']])} "
+                f"나타내는 기운({star}): {state}",
                 source_ref=_rules_ref("KINSHIP"),
                 depends=frozenset(_pillars(chart)),
                 assumptions=(KINSHIP_ASSUMPTION,),
@@ -389,7 +398,7 @@ def _aptitude_rule(chart: ChartSnapshot) -> list[_Draft]:
     a = aptitude(chart)
 
     def kinds(reading: dict[str, Any]) -> str:
-        return "·".join(CATEGORY_KO[c] for c in reading["categories"])
+        return "과 ".join(CATEGORY_KO[c] for c in reading["categories"])
 
     basis = {
         "special_structure": "한쪽 기운으로 크게 쏠린 특별한 틀을 따라",
@@ -415,12 +424,131 @@ def _aptitude_rule(chart: ChartSnapshot) -> list[_Draft]:
     ]
 
 
+FLOW_ASSUMPTION = (
+    "fortune flow without scores: ten gods of the incoming pillar, its relations with the natal "
+    "chart, and whether it carries the 억부 candidate elements (consensus strength)"
+)
+_RELATION_KO = {
+    "六合": "손잡는 끌림",
+    "三合": "한 방향으로 모이는 결속",
+    "沖": "부딪침",
+    "刑": "긴장",
+    "破": "깨짐",
+    "害": "어긋남",
+    "怨嗔": "서로 거슬림",
+    "鬼門": "예민함",
+    "合": "손잡는 끌림",
+}
+
+
+def _incoming(chart: ChartSnapshot, pillar: str) -> dict[str, Any]:
+    """Ten gods, groups, natal relations and favorable elements of an incoming pillar."""
+    day_stem = chart.day_pillar[0]
+    stem_god = t.ten_god(day_stem, pillar[0])
+    branch_god = t.branch_ten_god(day_stem, pillar[1])
+    elements = {t.STEM_ELEMENT[pillar[0]], t.BRANCH_ELEMENT[pillar[1]]}
+    return {
+        "stem_ten_god": stem_god,
+        "branch_ten_god": branch_god,
+        "groups": [t.TEN_GOD_GROUP[stem_god], t.TEN_GOD_GROUP[branch_god]],
+        "relations": timing.natal_relations(chart, pillar),
+        "favorable_match": sorted(elements & set(depth.favorable_elements(chart))),
+    }
+
+
+def _incoming_text(row: dict[str, Any]) -> str:
+    stem = PLAIN_TERMS[hangul(row["stem_ten_god"])]
+    branch = PLAIN_TERMS[hangul(row["branch_ten_god"])]
+    rels = [
+        f"{_POS_KO[r['with'].split('_')[0]]}주와 {_RELATION_KO.get(r['relation'], '관계')}"
+        for r in row["relations"]
+        if "+" not in r["with"]
+    ]
+    rel = ", ".join(dict.fromkeys(rels)) or "타고난 기둥과 뚜렷한 부딪침·끌림 없음"
+    good = (
+        "도움이 되는 기운(" + "·".join(ELEMENT_KO[e] for e in row["favorable_match"]) + ")이 들어옴"
+        if row["favorable_match"]
+        else "도움이 되는 기운과는 겹치지 않음"
+    )
+    return f"겉으로 {stem}, 속으로 {branch}이 부각됨. {rel}. {good}"
+
+
+def _luck_flow_rule(chart: ChartSnapshot) -> list[_Draft]:
+    drafts = []
+    for i, entry in enumerate(chart.daewoon.entries):
+        row = {
+            "index": i,
+            "start_age": entry.start_age,
+            "end_age": entry.start_age + 9,
+            "pillar": entry.pillar,
+            **_incoming(chart, entry.pillar),
+        }
+        drafts.append(
+            _Draft(
+                kind="rule_derived",
+                operands=row,
+                text_ko=f"{i + 1}번째 10년 운 ({entry.start_age}~{entry.start_age + 9}세, "
+                f"{hangul(entry.pillar)}): {_incoming_text(row)}",
+                source_ref=_rules_ref("LUCK_FLOW"),
+                depends=frozenset(_pillars(chart)),
+                assumptions=(*_daewoon_assumptions(chart), FLOW_ASSUMPTION),
+            )
+        )
+    return drafts
+
+
+def _daewoon_relations(year_pillar: str, daewoon: list[str]) -> list[dict[str, str]]:
+    found = []
+    for p in daewoon:
+        if p == timing.DAEWOON_UNAVAILABLE:
+            continue
+        for rel, _, members in t.pair_relations(year_pillar[1], p[1]):
+            found.append({"daewoon": p, "relation": rel, "name": f"{members}{rel}"})
+        for rel, _, members in t.stem_relations(year_pillar[0], p[0]):
+            found.append({"daewoon": p, "relation": rel, "name": f"{members}{rel}"})
+    return found
+
+
+def _year_flow_rule(chart: ChartSnapshot) -> list[_Draft]:
+    drafts = []
+    for entry in chart.sewoon:
+        daewoon = timing.daewoon_timeline(chart, entry.year)
+        row = {
+            "year": entry.year,
+            "year_pillar": entry.pillar,
+            **_incoming(chart, entry.pillar),
+            "daewoon": daewoon,
+            "daewoon_relations": _daewoon_relations(entry.pillar, daewoon),
+        }
+        with_luck = ", ".join(
+            dict.fromkeys(_RELATION_KO.get(r["relation"], "관계") for r in row["daewoon_relations"])
+        )
+        drafts.append(
+            _Draft(
+                kind="rule_derived",
+                operands=row,
+                text_ko=f"{entry.year}년({hangul(entry.pillar)}): {_incoming_text(row)}. "
+                + (f"그때의 10년 운과 {with_luck}" if with_luck else "그때의 10년 운과 무난함"),
+                source_ref=_rules_ref("YEAR_FLOW"),
+                depends=frozenset(_pillars(chart)),
+                assumptions=(
+                    timing.YEAR_PILLAR_ASSUMPTION,
+                    *_daewoon_assumptions(chart),
+                    FLOW_ASSUMPTION,
+                ),
+            )
+        )
+    return drafts
+
+
 GENERAL_RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     **{code: RULES[code] for code in RULE_ORDER if code not in MARRIAGE_TIMING_RULES},
     "TEN_GOD_DISTRIBUTION": _distribution_rule,
     "PALACES": _palaces_rule,
     "KINSHIP": _kinship_rule,
     "APTITUDE_CUES": _aptitude_rule,
+    "LUCK_FLOW": _luck_flow_rule,
+    "YEAR_FLOW": _year_flow_rule,
 }
 GENERAL_RULE_ORDER: tuple[str, ...] = tuple(GENERAL_RULES)
 

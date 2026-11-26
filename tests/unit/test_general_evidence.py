@@ -6,18 +6,21 @@ import pytest
 from korean_saju import GyeokgukCalculator
 
 from fateweave.domain import depth, rules
+from fateweave.domain import tables as t
 from fateweave.domain.calendar import normalize_birth
 from fateweave.domain.general import (
     CATEGORY,
+    GENERAL_NEW_RULES,
     GYEOKGUK_GROUP,
     aptitude,
     build_general_evidence,
     kinship,
     ten_god_distribution,
 )
+from fateweave.domain.glossary import has_hanja
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
-from fateweave.models.facts import ChartSnapshot, Evidence
+from fateweave.models.facts import ChartSnapshot, Evidence, PillarAlternative
 from fateweave.models.inputs import BirthProfileInput
 
 
@@ -209,3 +212,66 @@ def test_aptitude_without_hour_uses_dominant():
 def test_aptitude_lists_work_sinsal(zi):
     present = {s["sinsal"] for s in depth.sinsal(zi)}
     assert set(aptitude(zi)["sinsal"]) == present & {"驛馬", "華蓋", "天乙貴人", "魁罡", "羊刃"}
+
+
+# ---- Task 6: flows and the full catalog --------------------------------------------------
+
+
+def test_luck_and_year_flow(zi):
+    ev = build_general_evidence(zi)
+    luck = by_rule(ev, "LUCK_FLOW")
+    assert len(luck) == len(zi.daewoon.entries)
+    first = luck[0].operands
+    assert set(first) >= {
+        "index",
+        "start_age",
+        "end_age",
+        "pillar",
+        "stem_ten_god",
+        "branch_ten_god",
+        "groups",
+        "relations",
+        "favorable_match",
+    }
+    assert first["end_age"] == first["start_age"] + 9
+    assert [e.operands["index"] for e in luck] == list(range(len(luck)))
+    favorable = set(depth.favorable_elements(zi))
+    for e in luck:
+        p = e.operands["pillar"]
+        elements = {t.STEM_ELEMENT[p[0]], t.BRANCH_ELEMENT[p[1]]}
+        assert e.operands["favorable_match"] == sorted(elements & favorable)
+    years = by_rule(ev, "YEAR_FLOW")
+    assert [e.operands["year"] for e in years] == [s.year for s in zi.sewoon]
+    assert all("signal" not in e.operands and "rank" not in e.operands for e in years)
+    assert all(e.operands["daewoon"] for e in years)
+
+
+def test_general_catalog_has_no_marriage_timing(zi):
+    codes = {e.rule_code for e in build_general_evidence(zi)}
+    assert not codes & {"DAEWOON_FLOW", "YEAR_TIMING", "MONTH_TIMING", "LIFE_TIMING"}
+    assert {"SPOUSE_PALACE", "SPOUSE_STAR", *GENERAL_NEW_RULES} <= codes
+
+
+def test_partial_chart_flags_boundary(zi):  # Review Focus 4
+    alt = PillarAlternative(
+        year_pillar="辛未",
+        month_pillar=zi.month_pillar,
+        day_pillar=zi.day_pillar,
+        hour_pillar=zi.hour_pillar,
+        reasons=["SOLAR_TERM"],
+        local_windows=[],
+    )
+    snap = zi.model_copy(update={"alternatives": [alt], "certainty": "PARTIAL"})
+    ev = build_general_evidence(snap)
+    for rule in ("TEN_GOD_DISTRIBUTION", "APTITUDE_CUES", "LUCK_FLOW", "KINSHIP"):
+        assert rules.BOUNDARY_ASSUMPTION in by_rule(ev, rule)[0].assumptions, rule
+    palaces = {e.operands["position"]: e for e in by_rule(ev, "PALACES")}
+    assert rules.BOUNDARY_ASSUMPTION in palaces["year"].assumptions
+    assert rules.BOUNDARY_ASSUMPTION not in palaces["day"].assumptions
+
+
+def test_new_text_has_no_hanja(zi):
+    for snap in (zi, chart("1990-03-12", None, "male")):
+        for e in build_general_evidence(snap):
+            if e.rule_code in GENERAL_NEW_RULES:
+                assert not has_hanja(e.text_ko), e.text_ko
