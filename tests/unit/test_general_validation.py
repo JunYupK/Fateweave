@@ -13,6 +13,7 @@ from fateweave.domain.guide import (
     writing_guide,
 )
 from fateweave.domain.manse import compute_chart
+from fateweave.domain.rules import build_individual_evidence
 from fateweave.domain.validation import validate_report
 from fateweave.models.facts import PreparedAnalysis
 from fateweave.models.inputs import BirthProfileInput
@@ -163,3 +164,43 @@ def test_guide_general():
     assert any("진단" in r for r in g["style_rules"])
     assert any("caveats" in r for r in g["style_rules"])
     assert "required_citations" not in writing_guide("individual")
+
+
+def test_two_sentence_disclaimer_passes():  # final review
+    text = "이 풀이는 의학적 진단이 아닙니다. 혹시 질환이 의심되면 꼭 의료진과 상담하세요."
+    assert check(health=text + " " + FILLER * 45) == []
+    text2 = "의학적 진단이 아니다. 몸이 불편하면 병원에서 진찰과 처방을 받는 것이 우선이다."
+    assert check(health=text2 + " " + FILLER * 45) == []
+
+
+def test_doctor_counts_as_referral():
+    assert check(health="의학적 진단이 아니니 불편하면 의사와 상담하세요. " + FILLER * 45) == []
+
+
+def test_named_disease_in_a_diagnosis_sentence_is_rejected():
+    assert check(health_extra="토 기운이 넘치면 당뇨 진단을 받기 쉬운 체질로 본다.") == [
+        "HEALTH_MEDICAL_CLAIM"
+    ]
+
+
+def test_general_guide_has_no_marriage_rules():
+    rules = writing_guide("general")["style_rules"]
+    assert not any("결혼 시기는 연도와 월" in r for r in rules)
+    assert not any("limitations" in r for r in rules)
+    assert any("결혼 시기는 연도와 월" in r for r in writing_guide("individual")["style_rules"])
+
+
+def test_hour_unknown_spouse_star_is_not_absent():
+    snap = compute_chart(
+        normalize_birth(
+            BirthProfileInput(birth_date="1995-09-09", calendar="solar", gender_for_daewoon="male")
+        ),
+        sewoon_start_year=2026,
+        sewoon_years=3,
+    )
+    general = next(e for e in build_general_evidence(snap) if e.rule_code == "SPOUSE_STAR")
+    assert "확인 불가" in general.text_ko
+    individual = next(
+        e for e in build_individual_evidence(snap, "self") if e.rule_code == "SPOUSE_STAR"
+    )
+    assert individual.id == general.id and "확인 불가" not in individual.text_ko

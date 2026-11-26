@@ -295,7 +295,10 @@ MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters (rules-
 PLAIN_MAX_HANJA_RATIO = 0.01  # rules-v6+
 PLAIN_RULE_VERSION = 6  # first rule version with the plain-language checks
 # Sections exempt from JARGON_HEAVY: they exist to list the evidence the report relies on.
-JARGON_EXEMPT: dict[str, frozenset[str]] = {"individual": frozenset({"evidence_explanation"})}
+JARGON_EXEMPT: dict[str, frozenset[str]] = {
+    "individual": frozenset({"evidence_explanation"}),
+    "couple": frozenset({"evidence_explanation"}),
+}
 
 STYLE_RULES: tuple[str, ...] = (
     "명리 용어는 쓰지 않고 writing_guide.plain_terms의 뜻으로 쓴다. '천간 무토가 상관이라'처럼 "
@@ -305,17 +308,22 @@ STYLE_RULES: tuple[str, ...] = (
     "evidence의 text_ko는 이미 한글이다. operands의 한자 값은 claims의 computed_values에만 쓰며, "
     "computed_values에는 한자나 한글 표기 모두 허용된다.",
     "단정·확률·O/X 대신 '전통적으로 ~로 본다', '~한 경향으로 읽힌다'처럼 해석임을 드러내되, "
-    "같은 면책 문구를 섹션마다 반복하지 않는다 (limitations에 한 번).",
-    "결혼 시기는 연도와 월까지 구체적으로 쓰고, 각 연도·월마다 어떤 단서(배우자성, 배우자궁 합 "
-    "등)가 근거인지 밝힌다. 표(마크다운)를 써도 된다.",
+    "같은 면책 문구를 섹션마다 반복하지 않는다.",
     "학파마다 다른 판단(신강약, 용신, 조후, 격국)은 근거의 방법론을 밝히고, 다른 관법이면 "
     "어떻게 달라지는지 한두 문장 덧붙인다.",
     "신강약은 STRENGTH의 종합(consensus) 판정을 기준으로 쓴다. 두 관법(라이브러리 10점제, "
-    "통근·월령 반영)이 갈리면 둘 다 소개하고, 억부 용신과 결혼 시기 해석은 종합 판정을 따른다.",
+    "통근·월령 반영)이 갈리면 둘 다 소개하고, 억부 용신과 시기 해석은 종합 판정을 따른다.",
     "SPECIAL_STRUCTURE에 성립한 외격이 없으면 정격으로 해석하고 종격·화기격 해석을 하지 않는다. "
     "외격이 성립하면 억부 용신과 방향이 달라질 수 있음을 함께 쓴다.",
     "HOUR_BOUNDARY_NEAR 경고가 있으면 시주가 대안 시주일 수 있으므로, 시주에 기대는 해석"
     "(시지 신살, 시주 십성 등)은 대안 시주에서는 어떻게 달라지는지도 짧게 덧붙인다.",
+)
+
+# individual and couple only (general has no marriage-timing evidence and no limitations section).
+MARRIAGE_STYLE_RULES: tuple[str, ...] = (
+    "면책·한계 문구는 limitations 섹션에 한 번만 쓴다.",
+    "결혼 시기는 연도와 월까지 구체적으로 쓰고, 각 연도·월마다 어떤 단서(배우자성, 배우자궁 합 "
+    "등)가 근거인지 밝힌다. 표(마크다운)를 써도 된다.",
 )
 
 COUPLE_STYLE_RULES: tuple[str, ...] = (
@@ -364,7 +372,11 @@ def writing_guide(mode: str) -> dict[str, Any]:
     """The guide returned with every rules-v2 prepare_analysis result."""
     sections = SECTIONS[mode]
     couple = mode == "couple"
-    extra = {"couple": COUPLE_STYLE_RULES, "general": GENERAL_STYLE_RULES}.get(mode, ())
+    extra = {
+        "individual": MARRIAGE_STYLE_RULES,
+        "couple": (*MARRIAGE_STYLE_RULES, *COUPLE_STYLE_RULES),
+        "general": GENERAL_STYLE_RULES,
+    }[mode]
     guide: dict[str, Any] = {
         "sections": [s._asdict() for s in sections],
         "style_rules": [*STYLE_RULES, *extra],

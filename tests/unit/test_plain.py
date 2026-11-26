@@ -45,3 +45,22 @@ def test_longest_term_wins():
 def test_limit_is_one_per_300_chars_minimum_one():
     assert jargon_limit("가" * 50) == 1
     assert jargon_limit("가" * 1000) == 3
+
+
+def test_common_phrases_are_not_jargon():  # final review: false hits in plain prose
+    text = (
+        "강한 편인데 꼼꼼한 편인 사람, 예민한 편인지, 결혼 예정인 두 사람, 중요한 결정인 만큼, "
+        "일정인데, 가정인 만큼, 관성처럼 굳어, 상관관계, 일주일간, 3일간, 일간지, 재성장, "
+        "자기신뢰, 감정관리, 비겁하다"
+    )
+    assert jargon_terms(text) == []
+
+
+def test_real_uses_still_count():
+    assert jargon_terms("편인이 강해 정인과 함께 정재운이 오고 (상관) 일간 기준") == [
+        "편인",
+        "정인",
+        "정재",
+        "상관",
+        "일간",
+    ]

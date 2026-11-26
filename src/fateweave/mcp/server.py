@@ -85,7 +85,7 @@ TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW를 각각
 `VALIDATION_FAILED`가 된다.
    - 해석적 판단은 kind `interpretation` claim으로 분리하고 evidence ID를 인용한다.
    - 결혼 확률·퍼센트(probability)나 O/X 판정을 절대 쓰지 않는다. 출생 시각 미상이나 \
-경계(boundary) 불확실성은 limitations와 caveats에 한 번 밝힌다.
+경계(boundary) 불확실성은 limitations와 caveats에 한 번 밝힌다 (general은 caveats에만).
 3. 새 `idempotency_key`(예: UUID)로 `finalize_report`를 호출한다. 같은 draft를 재시도할 때만 \
 같은 키를 다시 쓴다.
 4. 응답 `status`가 `FINALIZED`일 때에만 사용자에게 "저장되었다"고 말하고 `report_id`를 알려준다. \

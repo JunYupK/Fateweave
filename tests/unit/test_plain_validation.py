@@ -130,3 +130,9 @@ def test_guide_carries_plain_terms():
         assert g["plain_terms"]["상관"] == "틀을 깨는 표현력·말솜씨"
         assert any("plain_terms" in r for r in g["style_rules"])
         assert not any("바로 뒤에 일상 언어로 풀어" in r for r in g["style_rules"])
+
+
+def test_couple_evidence_explanation_is_exempt():  # final review
+    from fateweave.domain.guide import JARGON_EXEMPT
+
+    assert "evidence_explanation" in JARGON_EXEMPT["couple"]

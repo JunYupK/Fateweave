@@ -101,24 +101,35 @@ PLAIN_TERMS: dict[str, str] = {
 # Glossed but never counted: they are also everyday words.
 _AMBIGUOUS = frozenset(
     {"인성", "지지", "관대", "신약", "정화", "해수", "계수", "장생", "제왕", "자수", "사화", "중화",
-     "목욕", "묘목", "일주", "임관"}
+     "목욕", "묘목", "일주", "임관", "관성"}
 )  # fmt: skip
 # Counted only when not the start of an ordinary word.
 _NOT_FOLLOWED_BY = {
-    "상관": r"\s*(?:없|있|하|않|이\s*없|이\s*있|은\s*없|도\s*없)",
+    "상관": r"\s*(?:없|있|하|않|관계|이\s*없|이\s*있|은\s*없|도\s*없)",
+    "재성": r"장",
+    "일간": r"지",
+    "비겁": r"(?:하|한|해|했)",
     "비견": r"\s*(?:되|돼|된|됨|될|하|할|한)",
     "식상": r"(?:하|해|한|했|함)",
     "편재": r"(?:되|돼|된|됨)",
 }
 
 
+# Counted only when not right after an adnominal word ("강한 편인데" = "is the strong kind").
+_NOT_AFTER_ADNOMINAL = {"편인"}
+_ADNOMINAL = r"(?<![한은는운던른할될큰센긴린쁜된난진인]\s)"
+
+
 def _pattern() -> re.Pattern[str]:
     terms = sorted((t for t in PLAIN_TERMS if t not in _AMBIGUOUS and len(t) > 1), key=len)
     parts = [
-        re.escape(t) + (f"(?!{_NOT_FOLLOWED_BY[t]})" if t in _NOT_FOLLOWED_BY else "")
+        (_ADNOMINAL if t in _NOT_AFTER_ADNOMINAL else "")
+        + re.escape(t)
+        + (f"(?!{_NOT_FOLLOWED_BY[t]})" if t in _NOT_FOLLOWED_BY else "")
         for t in reversed(terms)
     ]
-    return re.compile("|".join(parts))
+    # A term never starts inside a word or a number (예정인, 감정관리, 3일간, 일주일간).
+    return re.compile(r"(?<![가-힣0-9])(?:" + "|".join(parts) + ")")
 
 
 _JARGON = _pattern()

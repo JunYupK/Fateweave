@@ -18,6 +18,7 @@ Text is written in plain Korean (plain.PLAIN_TERMS) with no hanja; operands keep
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from korean_saju import GyeokgukCalculator
@@ -541,8 +542,18 @@ def _year_flow_rule(chart: ChartSnapshot) -> list[_Draft]:
     return drafts
 
 
+def _spouse_star_rule(chart: ChartSnapshot) -> list[_Draft]:
+    """SPOUSE_STAR, qualified when the unknown hour could hold the star (as KINSHIP says)."""
+    drafts = RULES["SPOUSE_STAR"](chart)
+    if _hour_known(chart):
+        return drafts
+    note = " (세 기둥 기준 — 태어난 시각을 몰라 시주의 배우자 기운은 확인 불가)"
+    return [replace(d, text_ko=d.text_ko + note) for d in drafts]
+
+
 GENERAL_RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     **{code: RULES[code] for code in RULE_ORDER if code not in MARRIAGE_TIMING_RULES},
+    "SPOUSE_STAR": _spouse_star_rule,
     "TEN_GOD_DISTRIBUTION": _distribution_rule,
     "PALACES": _palaces_rule,
     "KINSHIP": _kinship_rule,

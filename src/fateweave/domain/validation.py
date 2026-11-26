@@ -64,11 +64,14 @@ _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)(?!\s*년?\s*생)")  # not "19
 _SENTENCE = re.compile(r"(?<=[.!?。])\s+|\n")
 
 # general (rules-v6): the health section is a traditional constitution reading, never medicine.
-HEALTH_DISCLAIMER = (re.compile(r"진단"), re.compile(r"의료|병원|전문의"))
-HEALTH_MEDICAL_TERMS = re.compile(
+HEALTH_REFERRAL = re.compile(r"의료|병원|전문의|의사")
+HEALTH_NEGATION = re.compile(r"아니|않")
+# Named conditions are never allowed; generic medical words only inside the disclaimer.
+HEALTH_NAMED_CONDITIONS = re.compile(
     r"고혈압|저혈압|당뇨|우울증|불면증|갑상선|디스크|관절염|위염|간염|폐렴|천식|비염|아토피|치매"
-    r"|뇌졸중|심근경색|협심증|종양|질환|처방|복용|수술|약물|한약|영양제"
+    r"|뇌졸중|심근경색|협심증|종양"
 )
+HEALTH_GENERIC_TERMS = re.compile(r"질환|처방|복용|수술|약물|한약|영양제|치료")
 
 _MISSING = object()
 
@@ -344,7 +347,7 @@ def _check_general(draft: ReportDraft, catalog: dict[str, Evidence]) -> list[Val
         )
     health = draft.sections.get("health", "")
     if health.strip():
-        if not all(p.search(health) for p in HEALTH_DISCLAIMER):
+        if "진단" not in health or not HEALTH_REFERRAL.search(health):
             errors.append(
                 _err(
                     "HEALTH_DISCLAIMER_MISSING",
@@ -354,9 +357,13 @@ def _check_general(draft: ReportDraft, catalog: dict[str, Evidence]) -> list[Val
                 )
             )
         for sentence in _SENTENCE.split(health):
-            if "진단" in sentence:
-                continue  # the disclaimer itself may name diagnosis or treatment
-            if m := HEALTH_MEDICAL_TERMS.search(sentence):
+            disclaimer = HEALTH_REFERRAL.search(sentence) or (
+                "진단" in sentence and HEALTH_NEGATION.search(sentence)
+            )
+            m = HEALTH_NAMED_CONDITIONS.search(sentence) or (
+                None if disclaimer else HEALTH_GENERIC_TERMS.search(sentence)
+            )
+            if m:
                 errors.append(
                     _err(
                         "HEALTH_MEDICAL_CLAIM",
