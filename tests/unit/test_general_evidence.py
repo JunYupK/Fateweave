@@ -3,10 +3,18 @@
 from datetime import time
 
 import pytest
+from korean_saju import GyeokgukCalculator
 
-from fateweave.domain import rules
+from fateweave.domain import depth, rules
 from fateweave.domain.calendar import normalize_birth
-from fateweave.domain.general import build_general_evidence, kinship, ten_god_distribution
+from fateweave.domain.general import (
+    CATEGORY,
+    GYEOKGUK_GROUP,
+    aptitude,
+    build_general_evidence,
+    kinship,
+    ten_god_distribution,
+)
 from fateweave.domain.manse import compute_chart
 from fateweave.domain.rules import build_individual_evidence
 from fateweave.models.facts import ChartSnapshot, Evidence
@@ -152,3 +160,52 @@ def test_kinship_hidden_hits_are_listed_not_counted(zi):
     female = {e["relative"]: e for e in kinship(as_female)}
     assert female["spouse"]["ten_gods"] == ["正官", "偏官"]
     assert female["son"]["ten_gods"] == ["傷官"] and female["son"]["status"] == "found"
+
+
+# ---- Task 5: aptitude --------------------------------------------------------------------
+
+
+def test_aptitude_follows_gyeokguk_and_dominant(zi):
+    a = aptitude(zi)
+    expected = GyeokgukCalculator.determine(depth.library_saju(zi)).gyeokguk.hanja
+    assert a["basis"] == "gyeokguk" and a["gyeokguk"] == expected
+    assert a["groups"][0] == GYEOKGUK_GROUP[expected]
+    assert 1 <= len(a["groups"]) <= 2 and a["categories"] == [CATEGORY[g] for g in a["groups"]]
+    assert a["special_structure"] is None and a["alternative"] is None
+
+
+def test_aptitude_follows_special_structure(monkeypatch, zi):
+    accepted = [{"type": "從財格", "name_ko": "종재격", "verdict": "GENUINE", "score": 80}]
+    monkeypatch.setattr(
+        depth, "special_structures", lambda c: {"checked": 16, "accepted": accepted}
+    )
+    a = aptitude(zi)
+    assert (a["basis"], a["groups"], a["special_structure"]) == (
+        "special_structure",
+        ["財星"],
+        "從財格",
+    )
+    assert a["categories"] == ["business_management"]
+    assert a["alternative"]["basis"] == "gyeokguk"
+
+
+def test_aptitude_ignores_special_structure_without_group(monkeypatch, zi):
+    accepted = [
+        {"type": "甲己合化土格", "name_ko": "갑기합화토격", "verdict": "GENUINE", "score": 90}
+    ]
+    monkeypatch.setattr(
+        depth, "special_structures", lambda c: {"checked": 16, "accepted": accepted}
+    )
+    assert aptitude(zi)["basis"] == "gyeokguk"
+
+
+def test_aptitude_without_hour_uses_dominant():
+    snap = chart("1990-03-12", None, "male")
+    a = aptitude(snap)
+    assert a["basis"] == "dominant" and a["gyeokguk"] is None
+    assert a["groups"] == ten_god_distribution(snap)["dominant"][:2]
+
+
+def test_aptitude_lists_work_sinsal(zi):
+    present = {s["sinsal"] for s in depth.sinsal(zi)}
+    assert set(aptitude(zi)["sinsal"]) == present & {"驛馬", "華蓋", "天乙貴人", "魁罡", "羊刃"}

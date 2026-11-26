@@ -20,6 +20,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from korean_saju import GyeokgukCalculator
+
+from fateweave.domain import depth
 from fateweave.domain import tables as t
 from fateweave.domain.glossary import hangul
 from fateweave.domain.plain import PLAIN_TERMS
@@ -299,11 +302,125 @@ def _kinship_rule(chart: ChartSnapshot) -> list[_Draft]:
     return drafts
 
 
+CATEGORY = {
+    "比劫": "independent_competitive",
+    "食傷": "expressive_technical",
+    "財星": "business_management",
+    "官星": "organization_public",
+    "印星": "scholarly_educational",
+}
+CATEGORY_KO = {
+    "independent_competitive": "독립·경쟁형",
+    "expressive_technical": "표현·전문기술형",
+    "business_management": "사업·관리형",
+    "organization_public": "조직·공직형",
+    "scholarly_educational": "학문·교육형",
+}
+SPECIAL_GROUP = {
+    **dict.fromkeys(("從旺格", "從強格", "曲直格", "炎上格", "稼穡格", "從革格", "潤下格"), "比劫"),
+    "從財格": "財星",
+    "從官殺格": "官星",
+    "從兒格": "食傷",
+}
+GYEOKGUK_GROUP = {
+    "食神格": "食傷",
+    "傷官格": "食傷",
+    "偏財格": "財星",
+    "正財格": "財星",
+    "偏官格": "官星",
+    "正官格": "官星",
+    "偏印格": "印星",
+    "正印格": "印星",
+    "建祿格": "比劫",
+    "羊刃格": "比劫",
+}
+WORK_SINSAL = ("驛馬", "華蓋", "天乙貴人", "魁罡", "羊刃")
+APTITUDE_ASSUMPTION = (
+    "school-dependent traditional work types by ten-god group (比劫 independent/competitive, 食傷 "
+    "expressive/technical, 財星 business/management, 官星 organization/public, 印星 "
+    "scholarly/educational): an accepted 外格 decides first, then the 格局 group plus the "
+    "dominant group, else the dominant group"
+)
+
+
+def _gyeokguk(chart: ChartSnapshot) -> str | None:
+    if not _hour_known(chart):
+        return None
+    return GyeokgukCalculator.determine(depth.library_saju(chart)).gyeokguk.hanja
+
+
+def _reading(basis: str, groups: list[str]) -> dict[str, Any]:
+    return {"basis": basis, "groups": groups, "categories": [CATEGORY[g] for g in groups]}
+
+
+def aptitude(chart: ChartSnapshot) -> dict[str, Any]:
+    dominant = ten_god_distribution(chart)["dominant"]
+    gyeokguk = _gyeokguk(chart)
+    if gyeokguk in GYEOKGUK_GROUP:
+        regular = _reading(
+            "gyeokguk", list(dict.fromkeys([GYEOKGUK_GROUP[gyeokguk], *dominant]))[:2]
+        )
+    else:
+        regular = _reading("dominant", dominant[:2])
+    special = next(
+        (
+            s
+            for s in sorted(depth.special_structures(chart)["accepted"], key=lambda s: -s["score"])
+            if s["type"] in SPECIAL_GROUP
+        ),
+        None,
+    )
+    present = {s["sinsal"] for s in depth.sinsal(chart)}
+    common = {
+        "gyeokguk": gyeokguk,
+        "special_structure": special["type"] if special else None,
+        "sinsal": [n for n in WORK_SINSAL if n in present],
+    }
+    if special:
+        return {
+            **_reading("special_structure", [SPECIAL_GROUP[special["type"]]]),
+            **common,
+            "alternative": regular,
+        }
+    return {**regular, **common, "alternative": None}
+
+
+def _aptitude_rule(chart: ChartSnapshot) -> list[_Draft]:
+    a = aptitude(chart)
+
+    def kinds(reading: dict[str, Any]) -> str:
+        return "·".join(CATEGORY_KO[c] for c in reading["categories"])
+
+    basis = {
+        "special_structure": "한쪽 기운으로 크게 쏠린 특별한 틀을 따라",
+        "gyeokguk": "명식의 큰 틀과 가장 두드러진 기운을 함께 보아",
+        "dominant": "가장 두드러진 기운을 보아",
+    }[a["basis"]]
+    text = f"일의 적성(전통 분류): {basis} {kinds(a)}으로 본다"
+    if a["alternative"]:
+        text += f". 일반적인 틀로 읽으면 {kinds(a['alternative'])}"
+    if a["sinsal"]:
+        text += ". 일과 관련된 기운: " + ", ".join(
+            PLAIN_TERMS[depth.SINSAL_KO[n]] for n in a["sinsal"]
+        )
+    return [
+        _Draft(
+            kind="rule_derived",
+            operands=a,
+            text_ko=text,
+            source_ref=_rules_ref("APTITUDE_CUES"),
+            depends=frozenset(_pillars(chart)),
+            assumptions=(APTITUDE_ASSUMPTION,),
+        )
+    ]
+
+
 GENERAL_RULES: dict[str, Callable[[ChartSnapshot], list[_Draft]]] = {
     **{code: RULES[code] for code in RULE_ORDER if code not in MARRIAGE_TIMING_RULES},
     "TEN_GOD_DISTRIBUTION": _distribution_rule,
     "PALACES": _palaces_rule,
     "KINSHIP": _kinship_rule,
+    "APTITUDE_CUES": _aptitude_rule,
 }
 GENERAL_RULE_ORDER: tuple[str, ...] = tuple(GENERAL_RULES)
 
