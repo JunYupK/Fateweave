@@ -1,6 +1,6 @@
 # 종합 사주 리포트 (mode `general`)와 쉬운 말 규칙 설계
 
-작성 2026-11-26. 상태: 승인 요청 중.
+작성 2026-11-26. 상태: 승인됨, 구현 완료 (plan: `docs/superpowers/plans/2026-11-26-general-report-and-plain-language.md`).
 
 ## 1. 의도
 
