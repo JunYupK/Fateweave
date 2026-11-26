@@ -45,7 +45,7 @@ class BirthProfile(Base):
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (
-        CheckConstraint("mode IN ('individual','couple')", name="ck_analysis_runs_mode"),
+        CheckConstraint("mode IN ('individual','couple','general')", name="ck_analysis_runs_mode"),
         CheckConstraint(
             "status IN ('PREPARED','VALIDATION_FAILED','FINALIZED','ABANDONED')",
             name="ck_analysis_runs_status",

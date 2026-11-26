@@ -1,7 +1,11 @@
+import asyncio
+import secrets
 import uuid
 
 import pytest
 import sqlalchemy as sa
+from alembic import command
+from conftest import _admin, alembic_config
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -242,3 +246,50 @@ async def test_separate_database_role_denied_cross_database(server_url, test_db_
             await conn.execute(text(f'ALTER DATABASE "{db}" OWNER TO {server_url.username}'))
             await conn.execute(text(f"DROP ROLE IF EXISTS {role}"))
         await admin.dispose()
+
+
+async def test_mode_constraint_accepts_general_rejects_other(engine: AsyncEngine):
+    maker = make_sessionmaker(engine)
+    async with maker() as s:
+        repo = AnalysisRepository(s)
+        await _run(repo, [await _profile(repo)], mode="general")
+        await s.commit()
+    async with maker() as s:
+        repo = AnalysisRepository(s)
+        with pytest.raises(IntegrityError):
+            await _run(repo, [await _profile(repo)], mode="other")
+            await s.flush()
+
+
+def test_migration_0002_round_trip(server_url):
+    name = f"fateweave_mig_{secrets.token_hex(4)}"
+    asyncio.run(_admin(server_url, f'CREATE DATABASE "{name}"'))
+    url = server_url.set(database=name)
+    cfg = alembic_config(url)
+    raw = url.render_as_string(hide_password=False)
+
+    async def sql(*statements: str) -> None:
+        eng = create_async_engine(raw)
+        try:
+            async with eng.begin() as conn:
+                await conn.execute(text("SET LOCAL fateweave.maintenance = 'on'"))
+                for stmt in statements:
+                    await conn.execute(text(stmt))
+        finally:
+            await eng.dispose()
+
+    insert = (
+        "INSERT INTO analysis_runs (id, mode, participant_ids, snapshot, snapshot_hash, "
+        "policy_version, rule_version, status) VALUES (gen_random_uuid(), 'general', '{}', "
+        "'{}'::jsonb, 'h', 'manse-v2', 'rules-v6', 'PREPARED')"
+    )
+    try:
+        command.upgrade(cfg, "head")
+        asyncio.run(sql(insert))
+        with pytest.raises(DBAPIError):
+            command.downgrade(cfg, "0001")
+        asyncio.run(sql("DELETE FROM analysis_runs"))
+        command.downgrade(cfg, "0001")
+        command.upgrade(cfg, "head")
+    finally:
+        asyncio.run(_admin(server_url, f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))

@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from fateweave.models.facts import Mode
+
 
 def _non_blank(value: str) -> str:
     if not value.strip():
@@ -30,7 +32,7 @@ class ReportDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["report-v1"] = "report-v1"
-    report_type: Literal["individual", "couple"]
+    report_type: Mode
     sections: dict[str, str]
     claims: list[Claim] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
