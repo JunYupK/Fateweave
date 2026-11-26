@@ -62,7 +62,8 @@ async def test_general_complete_without_external_llm(engine: AsyncEngine):
     md = view.content
     assert md.startswith("# 종합 사주 리포트")
     headings = ["핵심 요약", "타고난 성향과 기질", "직업과 적성", "재물운", "건강 체질",
-                "인간관계와 가족", "대운으로 본 인생 흐름", "올해와 가까운 몇 년"]  # fmt: skip
+                "인간관계와 가족", "연애와 결혼", "대운으로 본 인생 흐름",
+                "올해와 가까운 몇 년"]  # fmt: skip
     positions = [md.index(f"## {h}") for h in headings]
     assert positions == sorted(positions)
     assert view.scoring_versions == {}

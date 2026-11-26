@@ -275,3 +275,12 @@ def test_new_text_has_no_hanja(zi):
         for e in build_general_evidence(snap):
             if e.rule_code in GENERAL_NEW_RULES:
                 assert not has_hanja(e.text_ko), e.text_ko
+
+
+def test_luck_flow_marks_spouse_star(zi):
+    stars = set(t.SPOUSE_STARS[zi.gender_for_daewoon])
+    for e in by_rule(build_general_evidence(zi), "LUCK_FLOW"):
+        ops = e.operands
+        expected = ops["stem_ten_god"] in stars or ops["branch_ten_god"] in stars
+        assert ops["spouse_star"] is expected
+        assert ("배우자 기운" in e.text_ko) is expected

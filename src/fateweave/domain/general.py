@@ -475,6 +475,7 @@ def _incoming_text(row: dict[str, Any]) -> str:
 
 
 def _luck_flow_rule(chart: ChartSnapshot) -> list[_Draft]:
+    stars = t.SPOUSE_STARS[chart.gender_for_daewoon]
     drafts = []
     for i, entry in enumerate(chart.daewoon.entries):
         row = {
@@ -484,15 +485,21 @@ def _luck_flow_rule(chart: ChartSnapshot) -> list[_Draft]:
             "pillar": entry.pillar,
             **_incoming(chart, entry.pillar),
         }
+        row["spouse_star"] = row["stem_ten_god"] in stars or row["branch_ten_god"] in stars
+        love = ". 배우자 기운이 들어와 인연이 강해지는 10년" if row["spouse_star"] else ""
         drafts.append(
             _Draft(
                 kind="rule_derived",
                 operands=row,
                 text_ko=f"{i + 1}번째 10년 운 ({entry.start_age}~{entry.start_age + 9}세, "
-                f"{hangul(entry.pillar)}): {_incoming_text(row)}",
+                f"{hangul(entry.pillar)}): {_incoming_text(row)}{love}",
                 source_ref=_rules_ref("LUCK_FLOW"),
                 depends=frozenset(_pillars(chart)),
-                assumptions=(*_daewoon_assumptions(chart), FLOW_ASSUMPTION),
+                assumptions=(
+                    *_daewoon_assumptions(chart),
+                    FLOW_ASSUMPTION,
+                    t.SPOUSE_STAR_ASSUMPTION,
+                ),
             )
         )
     return drafts

@@ -74,10 +74,11 @@ COMPAT_SCORE를 인용하고 computed_values에 score를 적은 computed claim�
 점수가 서버 값과 다르면 `SCORE_MISMATCH`, 공통 후보가 아닌 해를 공통 유리 시기·최적의 해로 \
 쓰면 `TIMING_NOT_CANDIDATE`가 된다.
    - 종합 사주(general): 성향·직업·인간관계 섹션을 가장 깊게, 기운 → 일상 → 장단점 순으로 쓴다. \
-TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW를 각각 인용하는 claim이 \
-필요하다. 한계는 `caveats`에 한 번 쓴다(없으면 `MISSING_CAVEATS`). 건강은 전통 체질론이며 \
-진단이 아니라는 문장과 의료진 상담 문장을 넣고 병명·약 이름은 쓰지 않는다. 결혼은 한 줄만, \
-결혼 시기 연도는 쓰지 않는다.
+TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW, SPOUSE_PALACE 또는 \
+SPOUSE_STAR를 각각 인용하는 claim이 필요하다. 한계는 `caveats`에 한 번 쓴다(없으면 \
+`MISSING_CAVEATS`). 건강은 전통 체질론이며 진단이 아니라는 문장과 의료진 상담 문장을 넣고 \
+병명·약 이름은 쓰지 않는다. 연애와 결혼(love_marriage)은 성향·매력·맞는 배우자·인연이 강해지는 \
+10년 구간까지 쓰고, 결혼 시기 연도는 쓰지 않고 결혼 리포트를 권한다.
    - kind `computed` claim은 `evidence_catalog`의 evidence ID(`evidence_ids`)를 인용하고, \
 `computed_values`에 해당 evidence `operands`의 값을 그대로 적는다 (한자·한글 표기 모두 허용).
    - draft에는 `evidence_catalog`의 evidence ID를 인용하는 kind `computed` claim이 최소 1개 \
