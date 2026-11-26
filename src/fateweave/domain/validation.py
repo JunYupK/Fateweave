@@ -10,6 +10,7 @@ from typing import Any
 from fateweave.domain.assessments import COMPONENT_KO
 from fateweave.domain.glossary import hanja_count, same_value
 from fateweave.domain.guide import (
+    GENERAL_REQUIRED_CITATIONS,
     JARGON_EXEMPT,
     MAX_HANJA_RATIO,
     PLAIN_MAX_HANJA_RATIO,
@@ -61,6 +62,13 @@ _NEGATION = re.compile(r"아니|아님|않|없|제외|빠지|빠진|빠져|빠�
 _YEAR_RANGE = re.compile(r"(?:19|20)\d{2}\s*(?:년\s*)?[~\-–]\s*(?:(?:19|20)\d{2}|\d{2})")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)(?!\s*년?\s*생)")  # not "1990년생"
 _SENTENCE = re.compile(r"(?<=[.!?。])\s+|\n")
+
+# general (rules-v6): the health section is a traditional constitution reading, never medicine.
+HEALTH_DISCLAIMER = (re.compile(r"진단"), re.compile(r"의료|병원|전문의"))
+HEALTH_MEDICAL_TERMS = re.compile(
+    r"고혈압|저혈압|당뇨|우울증|불면증|갑상선|디스크|관절염|위염|간염|폐렴|천식|비염|아토피|치매"
+    r"|뇌졸중|심근경색|협심증|종양|질환|처방|복용|수술|약물|한약|영양제"
+)
 
 _MISSING = object()
 
@@ -311,6 +319,56 @@ def _check_candidate_years(
     return errors
 
 
+def _check_general(draft: ReportDraft, catalog: dict[str, Evidence]) -> list[ValidationError]:
+    """Required citations, caveats and the health section of a general report."""
+    errors: list[ValidationError] = []
+    cited = {
+        catalog[eid].rule_code for c in draft.claims for eid in c.evidence_ids if eid in catalog
+    }
+    for group in GENERAL_REQUIRED_CITATIONS:
+        if not cited & set(group):
+            errors.append(
+                _err(
+                    "UNSUPPORTED_CLAIM",
+                    f"the general report needs a claim citing {' or '.join(group)} evidence",
+                    "claims",
+                )
+            )
+    if not any(c.strip() for c in draft.caveats):
+        errors.append(
+            _err(
+                "MISSING_CAVEATS",
+                "state the limits (birth time, boundaries, traditional reading) once in caveats",
+                "caveats",
+            )
+        )
+    health = draft.sections.get("health", "")
+    if health.strip():
+        if not all(p.search(health) for p in HEALTH_DISCLAIMER):
+            errors.append(
+                _err(
+                    "HEALTH_DISCLAIMER_MISSING",
+                    "the health section must say it is not a medical diagnosis and to see a "
+                    "doctor (의료진) when something is wrong",
+                    "sections.health",
+                )
+            )
+        for sentence in _SENTENCE.split(health):
+            if "진단" in sentence:
+                continue  # the disclaimer itself may name diagnosis or treatment
+            if m := HEALTH_MEDICAL_TERMS.search(sentence):
+                errors.append(
+                    _err(
+                        "HEALTH_MEDICAL_CLAIM",
+                        f"the health section names a disease or treatment ({m.group(0)}); keep "
+                        "to the traditional constitution reading",
+                        "sections.health",
+                    )
+                )
+                break
+    return errors
+
+
 def _cites_server_evidence(claim: Claim, catalog: dict[str, Evidence]) -> bool:
     return claim.kind == "computed" and any(eid in catalog for eid in claim.evidence_ids)
 
@@ -392,6 +450,12 @@ def validate_report(draft: ReportDraft, run: PreparedAnalysis) -> ValidationResu
     texts = [(f"sections.{k}", v) for k, v in draft.sections.items()]
     texts += [(f"claims.{i}.statement", c.statement) for i, c in enumerate(draft.claims)]
     texts += [(f"caveats.{i}", c) for i, c in enumerate(draft.caveats)]
+    if (
+        draft.report_type == "general"
+        and run.mode == "general"
+        and rule_version_number(run.rule_version) >= PLAIN_RULE_VERSION
+    ):
+        errors.extend(_check_general(draft, catalog))
     if draft.report_type == "couple" and run.mode == "couple":
         errors.extend(_check_scores(draft, catalog, texts))
         errors.extend(_check_candidate_years(catalog, texts))

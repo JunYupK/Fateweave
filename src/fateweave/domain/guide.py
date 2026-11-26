@@ -187,7 +187,79 @@ COUPLE: tuple[Section, ...] = (
     ),
 )
 
-SECTIONS: dict[str, tuple[Section, ...]] = {"individual": INDIVIDUAL, "couple": COUPLE}
+GENERAL: tuple[Section, ...] = (
+    Section(
+        "summary",
+        "핵심 요약",
+        300,
+        600,
+        "명식 한 줄(쉬운 말로), 성향·직업·관계의 핵심, 인생 흐름의 큰 그림, 도움이 되는 기운 한 "
+        "줄, 결혼은 '결혼 리포트 참고' 한 줄.",
+    ),
+    Section(
+        "temperament",
+        "타고난 성향과 기질",
+        1000,
+        1800,
+        "일간 오행, 일주, 기운 분포(TEN_GOD_DISTRIBUTION: 많은 기운·없는 기운, 겉과 속), "
+        "12운성, 신강약 종합 판정, 격국·외격. 일상에서 드러나는 모습, 장점과 약점, 스트레스 받을 "
+        "때의 모습.",
+    ),
+    Section(
+        "career",
+        "직업과 적성",
+        1000,
+        1800,
+        "적성 단서(APTITUDE_CUES)의 전통 분류(조직형/전문기술형/사업형/학문·교육형/독립·경쟁형), "
+        "맞는 일하는 방식과 피하면 좋은 환경, 10년 운(LUCK_FLOW)으로 본 일의 전환기.",
+    ),
+    Section(
+        "wealth",
+        "재물운",
+        500,
+        1000,
+        "재성의 유무·위치·강약, 재물이 흐르는 방식, 돈을 다루는 성향.",
+    ),
+    Section(
+        "health",
+        "건강 체질",
+        400,
+        800,
+        "오행 과다·부족으로 본 전통 체질론. 오행과 장부의 전통 대응(목=간·담, 화=심장·소장, "
+        "토=위·비장, 금=폐·대장, 수=신장·방광)을 쓸 수 있다. 병명·치료·약 이름은 쓰지 않고, "
+        "의학적 진단이 아니며 이상이 있으면 의료진과 상담하라는 문장을 반드시 넣는다.",
+    ),
+    Section(
+        "family_relations",
+        "인간관계와 가족",
+        1000,
+        1800,
+        "궁위(PALACES: 연주=조상·어린 시절, 월주=부모·형제·사회, 일주=나·배우자, 시주=자녀·말년)와 "
+        "그 자리의 기운, 육친(KINSHIP)의 위치와 강약, 기둥끼리의 합충을 가족 자리로 읽기, 친구·"
+        "동료 관계는 비겁 분포로.",
+    ),
+    Section(
+        "life_flow",
+        "대운으로 본 인생 흐름",
+        800,
+        1500,
+        "LUCK_FLOW로 10년 구간별로 일·관계·재물 중 무엇이 부각되는지와 전환기.",
+    ),
+    Section(
+        "year_flow",
+        "올해와 가까운 몇 년",
+        600,
+        1200,
+        "YEAR_FLOW로 연도별 기운, 타고난 기둥과의 관계, 그때의 10년 운과의 관계. "
+        "순위·점수·확률 없음.",
+    ),
+)
+
+SECTIONS: dict[str, tuple[Section, ...]] = {
+    "individual": INDIVIDUAL,
+    "couple": COUPLE,
+    "general": GENERAL,
+}
 
 # Required sections of rules-v1 analyses (prepared before rules-v2); no minimum length.
 LEGACY_REQUIRED: dict[str, tuple[str, ...]] = {
@@ -210,7 +282,14 @@ LEGACY_REQUIRED: dict[str, tuple[str, ...]] = {
         "limitations",
     ),
 }
-TIMING_RULES = {"individual": "YEAR_TIMING", "couple": "COUPLE_TIMING"}
+TIMING_RULES = {"individual": "YEAR_TIMING", "couple": "COUPLE_TIMING", "general": "LUCK_FLOW"}
+# general: each group needs at least one claim citing evidence of one of its rules.
+GENERAL_REQUIRED_CITATIONS: tuple[tuple[str, ...], ...] = (
+    ("TEN_GOD_DISTRIBUTION",),
+    ("APTITUDE_CUES",),
+    ("KINSHIP", "PALACES"),
+    ("LUCK_FLOW",),
+)
 SCORE_RULE = "COMPAT_SCORE"
 MAX_HANJA_RATIO = 0.05  # per section, hanja characters / all characters (rules-v2..v5)
 PLAIN_MAX_HANJA_RATIO = 0.01  # rules-v6+
@@ -250,6 +329,19 @@ COUPLE_STYLE_RULES: tuple[str, ...] = (
     "거절된다. 후보가 아닌 해를 언급할 때는 '공통 후보 아님'처럼 분명히 구분한다.",
 )
 
+GENERAL_STYLE_RULES: tuple[str, ...] = (
+    "성향·직업·인간관계 섹션은 근거마다 '어떤 기운이 있는지 → 일상에서 어떻게 드러나는지 → "
+    "장점과 약점'까지 쓴다. 누구에게나 맞는 일반론으로 채우지 않는다.",
+    "건강은 전통 체질론일 뿐 진단이 아니다. health 섹션에 '의학적 진단이 아니며 이상이 있으면 "
+    "의료진과 상담'이라는 문장을 넣고(없으면 HEALTH_DISCLAIMER_MISSING), 병명·약·복용·처방 같은 "
+    "말은 쓰지 않는다(HEALTH_MEDICAL_CLAIM).",
+    "결혼은 요약에 한 줄만 쓰고 결혼 리포트를 권한다. 결혼 시기 연도는 쓰지 않는다.",
+    "출생 시각 미상·경계·전통 해석이라는 한계는 caveats에 한 번 쓴다(비어 있으면 MISSING_CAVEATS). "
+    "'확인 불가'로 표시된 기운·가족 자리는 없다고 단정하지 않는다.",
+    "TEN_GOD_DISTRIBUTION, APTITUDE_CUES, KINSHIP 또는 PALACES, LUCK_FLOW를 각각 인용하는 claim이 "
+    "최소 1개씩 필요하다.",
+)
+
 
 def rule_version_number(version: str) -> int:
     """'rules-v6' -> 6."""
@@ -272,9 +364,10 @@ def writing_guide(mode: str) -> dict[str, Any]:
     """The guide returned with every rules-v2 prepare_analysis result."""
     sections = SECTIONS[mode]
     couple = mode == "couple"
+    extra = {"couple": COUPLE_STYLE_RULES, "general": GENERAL_STYLE_RULES}.get(mode, ())
     guide: dict[str, Any] = {
         "sections": [s._asdict() for s in sections],
-        "style_rules": [*STYLE_RULES, *(COUPLE_STYLE_RULES if couple else ())],
+        "style_rules": [*STYLE_RULES, *extra],
         "minimum_total_chars": sum(s.min_chars for s in sections),
         "target_total_chars": sum(s.target_chars for s in sections),
         "required_timing_rule": TIMING_RULES[mode],
@@ -293,4 +386,6 @@ def writing_guide(mode: str) -> dict[str, Any]:
     }
     if couple:
         guide["required_score_rule"] = SCORE_RULE
+    if mode == "general":
+        guide["required_citations"] = [list(x) for x in GENERAL_REQUIRED_CITATIONS]
     return guide
